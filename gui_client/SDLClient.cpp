@@ -42,6 +42,7 @@ Copyright Glare Technologies Limited 2024 -
 #include <networking/URL.h>
 #include <webserver/Escaping.h>
 #include <direct3d/Direct3DUtils.h>
+#include <cmath>
 #include <GL/gl3w.h>
 #include <SDL_opengl.h>
 #include <SDL.h>
@@ -177,6 +178,24 @@ static bool sync_gl_for_timing = false;
 
 // ?stereo=1.  Draw the scene twice into one framebuffer, side by side.  See the loop in doOneMainLoopIter().
 static bool draw_stereo = false;
+
+#if EMSCRIPTEN
+// WebXR session state.  Set from JS in webclient.html, which owns the session itself: a session can only be
+// started from a user gesture, and the WebXR API is not exposed to Emscripten.
+static bool xr_session_active = false;
+static unsigned int xr_framebuffer_name = 0; // Emscripten GL name for the opaque framebuffer the session gives us.
+static int xr_framebuffer_w = 0, xr_framebuffer_h = 0;
+static int xr_frames = 0;
+static Timer* xr_timer = NULL;
+
+// gl3w.h is included below and rewrites these to function pointers it loads itself, which do not exist in an
+// Emscripten build.  Reach the GLES entry points directly instead.  Constants are fine - only functions are
+// rewritten - so GL_FRAMEBUFFER and friends still come from the header.
+extern "C" void emscripten_glBindFramebuffer(unsigned int target, unsigned int framebuffer);
+extern "C" void emscripten_glClearColor(float r, float g, float b, float a);
+extern "C" void emscripten_glClear(unsigned int mask);
+extern "C" void emscripten_glViewport(int x, int y, int w, int h);
+#endif
 #if EMSCRIPTEN
 extern "C" void emscripten_glFinish(void);
 #endif
@@ -218,6 +237,12 @@ EM_JS(void, updateURL, (const char* new_URL), {
 // a headset means aiming at a checkbox, so the numbers go to the page as well and the ?fps=1 overlay shows them.
 EM_JS(void, publishFrameTimings, (double cpu_ms, double gl_ms, double client_fps), {
 	window.__substrata_frame_timings = { cpu_ms: cpu_ms, gl_ms: gl_ms, client_fps: client_fps };
+});
+
+// Publish WebXR session statistics where the flat page can show them.  A headset is not a place to read a
+// debug overlay, so the numbers have to survive the session and be readable afterwards.
+EM_JS(void, publishXRStats, (double fps, int frames, int views, int fb_w, int fb_h, int active), {
+	window.__substrata_xr = { fps: fps, frames: frames, views: views, fb_w: fb_w, fb_h: fb_h, active: !!active };
 });
 
 // Define getUserAgentString() function
@@ -948,6 +973,12 @@ static bool tried_initialise_audio_engine = false;
 
 static void doOneMainLoopIter()
 {
+#if EMSCRIPTEN
+	// The XR session drives its own frame loop, so the page loop must not also be drawing.  The loop is
+	// cancelled when a session starts; this is here in case a browser delivers one more callback after that.
+	if(xr_session_active)
+		return;
+#endif
 	Timer loop_iter_timer;
 
 
@@ -1432,6 +1463,78 @@ static std::string sanitiseString(const std::string& s)
 			res[i] = '_';
 	return res;
 }
+
+
+#if EMSCRIPTEN
+
+
+// The three functions below are called from the WebXR code in webclient.html.  See the scope notes in
+// ROADMAP.md: this is phase one, the session lifecycle.  Nothing of the world is drawn yet.  What it does prove,
+// and what everything after it depends on, is that the opaque framebuffer the session hands over can be reached
+// from here at all - Emscripten addresses GL objects by integer name through a table of its own, and WebXR
+// hands out a JavaScript object, so the two have to be introduced.  Clearing that framebuffer to a colour that
+// moves is the smallest thing that demonstrates the whole chain works from inside the headset.
+
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void xrSessionStarted(unsigned int framebuffer_name, int fb_width, int fb_height)
+{
+	conPrint("xrSessionStarted: framebuffer name " + toString(framebuffer_name) + ", " + toString(fb_width) + " x " + toString(fb_height));
+
+	xr_framebuffer_name = framebuffer_name;
+	xr_framebuffer_w = fb_width;
+	xr_framebuffer_h = fb_height;
+	xr_frames = 0;
+	xr_session_active = true;
+
+	delete xr_timer;
+	xr_timer = new Timer();
+
+	emscripten_cancel_main_loop(); // Stop the page's frame loop.  The session drives frames from now on.
+}
+
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void xrFrame(int num_views)
+{
+	if(!xr_session_active)
+		return;
+
+	xr_frames++;
+
+	// Bind the session's framebuffer and clear it to a slowly changing colour.  If this shows up in the headset
+	// then the session, the framebuffer handover and the frame loop are all working, which is the whole point of
+	// this phase.  Phase two replaces it with the scene.
+	emscripten_glBindFramebuffer(GL_FRAMEBUFFER, xr_framebuffer_name);
+	emscripten_glViewport(0, 0, xr_framebuffer_w, xr_framebuffer_h);
+
+	const float t = xr_timer ? (float)xr_timer->elapsed() : 0.f;
+	emscripten_glClearColor(0.5f + 0.5f * std::sin(t), 0.25f, 0.5f + 0.5f * std::cos(t), 1.f);
+	emscripten_glClear(GL_COLOR_BUFFER_BIT);
+
+	const double elapsed = xr_timer ? xr_timer->elapsed() : 0.0;
+	if(elapsed > 0)
+		publishXRStats(xr_frames / elapsed, xr_frames, num_views, xr_framebuffer_w, xr_framebuffer_h, /*active=*/1);
+}
+
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void xrSessionEnded()
+{
+	const double elapsed = xr_timer ? xr_timer->elapsed() : 0.0;
+	conPrint("xrSessionEnded: " + toString(xr_frames) + " frames in " + doubleToStringNDecimalPlaces(elapsed, 1) + " s");
+
+	if(elapsed > 0)
+		publishXRStats(xr_frames / elapsed, xr_frames, 0, xr_framebuffer_w, xr_framebuffer_h, /*active=*/0);
+
+	xr_session_active = false;
+	xr_framebuffer_name = 0;
+
+	emscripten_set_main_loop(doOneMainLoopIter, /*fps=*/0, /*simulate_infinite_loop=*/false); // Resume the page's loop.
+}
+
+
+#endif // EMSCRIPTEN
 
 
 // processFilePickerFile is called from JS code in webclient.html.

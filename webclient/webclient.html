@@ -431,5 +431,128 @@
 	</script>
 
 
+	<!-- WebXR session.  Phase one of the scope in ROADMAP.md: start a session, run its frame loop, end cleanly.
+	     Nothing of the world is drawn yet - the client clears the session's framebuffer to a moving colour, which
+	     is the smallest thing that shows the whole chain is live from inside the headset.
+
+	     The session lives here rather than in C++ because it can only be started from a user gesture and because
+	     Emscripten has no WebXR bindings.  The one piece that has to cross over is the framebuffer: Emscripten
+	     addresses GL objects by integer name through a table of its own, and WebXR hands out a JavaScript
+	     object, so the object is registered in that table and the name passed across. -->
+	<script type="text/javascript">
+	(function() {
+		var xrButton = null;
+		var xrSession = null;
+		var xrRefSpace = null;
+
+		function setStatus(text, enabled) {
+			if(!xrButton) return;
+			xrButton.textContent = text;
+			xrButton.disabled = !enabled;
+			xrButton.style.opacity = enabled ? '1' : '0.5';
+		}
+
+		function makeButton() {
+			var b = document.createElement('button');
+			b.textContent = 'Enter VR';
+			b.style.cssText =
+				'position:fixed;right:16px;bottom:16px;z-index:100001;' +
+				'font:600 16px system-ui,sans-serif;color:#fff;background:#1a56db;' +
+				'border:0;border-radius:8px;padding:12px 20px;cursor:pointer;';
+			b.addEventListener('click', onClick);
+			document.body.appendChild(b);
+			return b;
+		}
+
+		function onClick() {
+			if(xrSession)
+				xrSession.end();  // The 'end' event does the tidying up, however the session ends.
+			else
+				enterVR();
+		}
+
+		async function enterVR() {
+			setStatus('Starting...', false);
+			try {
+				var canvas = document.getElementById('canvas');
+				var gl = canvas.getContext('webgl2');
+				if(!gl) throw new Error('no WebGL2 context');
+
+				// The context was created by SDL without knowing about XR.  This can migrate it to the adapter
+				// driving the headset, which on some devices means losing and restoring it.
+				await gl.makeXRCompatible();
+
+				var session = await navigator.xr.requestSession('immersive-vr');
+				var layer = new XRWebGLLayer(session, gl);
+				await session.updateRenderState({ baseLayer: layer });
+
+				// local-floor puts the origin on the floor, which is what a room-scale scene wants.  Not every
+				// device offers it, so fall back to local, whose origin is wherever the head started.
+				try       { xrRefSpace = await session.requestReferenceSpace('local-floor'); }
+				catch(e)  { xrRefSpace = await session.requestReferenceSpace('local'); }
+
+				if(!layer.framebuffer)
+					throw new Error('session gave no framebuffer');
+
+				// Introduce the framebuffer to Emscripten's GL object table, and hand C++ the integer name.
+				var GL = Module.GL;
+				if(!GL || !GL.framebuffers)
+					throw new Error("Emscripten's GL table is not exported - build with EXPORTED_RUNTIME_METHODS=GL");
+				var fbName = GL.getNewId(GL.framebuffers);
+				layer.framebuffer.name = fbName;
+				GL.framebuffers[fbName] = layer.framebuffer;
+
+				xrSession = session;
+				session.addEventListener('end', onSessionEnded);
+
+				Module._xrSessionStarted(fbName, layer.framebufferWidth, layer.framebufferHeight);
+				setStatus('Exit VR', true);
+
+				session.requestAnimationFrame(onXRFrame);
+			}
+			catch(err) {
+				console.error('WebXR: could not start a session:', err);
+				setStatus('VR failed - see console', true);
+				xrSession = null;
+			}
+		}
+
+		function onXRFrame(time, frame) {
+			var session = frame.session;
+			session.requestAnimationFrame(onXRFrame);
+
+			// A pose can be missing for a frame or two, when tracking has not settled or the headset is off the
+			// face.  Skipping those is normal and not an error.
+			var pose = frame.getViewerPose(xrRefSpace);
+			Module._xrFrame(pose ? pose.views.length : 0);
+		}
+
+		function onSessionEnded() {
+			if(xrSession) xrSession.removeEventListener('end', onSessionEnded);
+			xrSession = null;
+			xrRefSpace = null;
+			Module._xrSessionEnded();
+			setStatus('Enter VR', true);
+		}
+
+		function init() {
+			if(!navigator.xr) return; // Not an XR browser: no button, nothing to explain.
+
+			navigator.xr.isSessionSupported('immersive-vr').then(function(supported) {
+				if(!supported) return;
+				xrButton = makeButton();
+			}).catch(function(){ /* Treated as unsupported. */ });
+		}
+
+		// Wait for the wasm module, since the button calls straight into it.
+		if(window.Module && Module.calledRun) init();
+		else {
+			var prev = window.Module ? Module.onRuntimeInitialized : null;
+			Module.onRuntimeInitialized = function() { if(prev) prev(); init(); };
+		}
+	})();
+	</script>
+
+
 	</body>
 </html>

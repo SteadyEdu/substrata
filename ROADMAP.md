@@ -156,6 +156,12 @@ WebXR
     With the viewport offset and the per-frame clear already done, glare-core may need no further changes at all.
     What is left is the client and a JS shim.
 
+    Phase 1 is done: an Enter VR button, a session, its frame loop driving the client, and a clean exit.  The
+    framebuffer handover - the risk everything else rested on - works: a JavaScript WebGLFramebuffer registered
+    in Emscripten's table through Module.GL can be bound and cleared from C++.  Proved without a headset by
+    registering an ordinary framebuffer, calling the three entry points by hand and reading the pixel back: it
+    came out 128,64,255,255, exactly what the C++ clear computes at t=0.
+
     Phase 1, session lifecycle.  An Enter VR button, since a session can only start from a user gesture;
     navigator.xr.isSessionSupported and requestSession('immersive-vr'); a reference space; and swapping the main
     loop over - emscripten_cancel_main_loop() and then let XRSession.requestAnimationFrame call an exported

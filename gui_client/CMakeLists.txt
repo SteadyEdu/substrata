@@ -1242,8 +1242,10 @@ if(EMSCRIPTEN)
 		"-sENVIRONMENT=web,worker" # Specify that the JS code only supports running in web/web workers.(Not node.js etc.)
 		"-sPTHREAD_POOL_SIZE=30" # See calculation above
 		"-sSTACK_SIZE=262144"
-		"-sEXPORTED_RUNTIME_METHODS=ccall" # Needed to be able to call into C++ from JS.  Used in emscripten_browser_clipboard.
-		"-sEXPORTED_FUNCTIONS=_processFilePickerFile,_malloc,_free,_main"
+		# GL is needed so the WebXR code can register the session's framebuffer in Emscripten's GL object table:
+		# Emscripten addresses GL objects by integer name, and WebXR hands out a JavaScript object.
+		"-sEXPORTED_RUNTIME_METHODS=ccall,GL" # Needed to be able to call into C++ from JS.  Used in emscripten_browser_clipboard.
+		"-sEXPORTED_FUNCTIONS=_processFilePickerFile,_malloc,_free,_main,_xrSessionStarted,_xrFrame,_xrSessionEnded"
 		"-lwebsocket.js" # To use emscripten websockets API: https://emscripten.org/docs/porting/networking.html#emscripten-websockets-api
 		--use-preload-cache # Cache the preloaded data in IndexedDB for subsequent page visits.
 		--preload-file data # Use preloaded data, read it from the 'data' directory in the Emscripten build dir.
