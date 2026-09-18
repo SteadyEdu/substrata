@@ -405,7 +405,13 @@ int main(int argc, char** argv)
 		const bool minimal_gfx = (gfx_profile == "min");
 
 		// device_pixel_ratio > 1 is probably a mobile device
-		const bool low_memory_mode = (gfx_profile == "low") || minimal_gfx ||
+		//
+		// Stereo forces the cheap profile too.  Drawing several views into one framebuffer needs the offscreen
+		// render buffer off: the engine composites that buffer back at the origin, so each view would land on
+		// top of the last rather than beside it.  A headset needs these settings regardless, so rather than
+		// letting ?stereo=1&gfx=high render half a frame, treat asking for stereo as asking for the profile
+		// that can deliver it.
+		const bool low_memory_mode = (gfx_profile == "low") || minimal_gfx || draw_stereo ||
 			((gfx_profile != "high") && (device_pixel_ratio > 1.0));
 #else
 		const bool low_memory_mode = false;
