@@ -103,6 +103,24 @@ WebXR
     the first.  ?stereo=1 in the web client draws the scene twice side by side and is what proved it: tracing the
     GL context shows two viewport rectangles a frame, each taking the same 66 draw calls.
 
+    Then the cost of a second view was measured, by splitting the canvas rather than enlarging it so the pixel
+    count stays the same.  At gfx=min, scale 2, 4.31 Mpix either way:
+
+        one view    54.0 fps   18.5 ms
+        two views   42.4 fps   23.6 ms
+
+    A second view costs 5.1 ms with no extra pixels.  That splits the 7.4 ms fixed term into 5.1 ms per view and
+    2.3 ms per frame, and it changes the outlook badly: two views cost 12.5 ms of the 13.9 ms available at 72 Hz
+    before a single pixel is shaded, leaving room for 6% of a Quest 3's per-eye resolution.  At 90 Hz the
+    overhead alone exceeds the budget.  The earlier 26% figure assumed that fixed cost was per frame.  It is not.
+
+    So sharing work between eyes is a prerequisite rather than an optimisation.  The leading suspect is passes
+    that do not depend on the view being re-run for each one: draw() calls drawAuroraTex() and drawCloudEnvMap()
+    every time, and the latter raymarches clouds into a lat-long map indexed by world-space direction - by its
+    own description independent of where the camera is.  Both eyes pay for it.  Hoisting the view-independent
+    passes out of the per-view draw is the first thing to try, ahead of multiview, because it is much smaller and
+    the measurement says the waste is there.
+
     Still to do for a real XR path: per-eye projection matrices from the headset rather than one shared camera
     (setFrustumCameraTransform), rendering into the framebuffer WebXR hands over, driving the loop from
     XRSession.requestAnimationFrame instead of emscripten_set_main_loop, the y-up to z-up conversion, and a
