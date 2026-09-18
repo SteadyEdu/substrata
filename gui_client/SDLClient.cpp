@@ -1306,6 +1306,10 @@ static void doOneMainLoopIter()
 			else
 				opengl_engine->setViewportDims(view_w, gl_h);
 
+			// The first view clears the whole framebuffer; the rest do not clear at all.  See
+			// setViewIndexInFrame() - a clear confined to one eye is expensive on a tile-based GPU.
+			opengl_engine->setViewIndexInFrame(view);
+
 			Matrix4f view_matrix = world_to_camera_space_matrix;
 			if(draw_stereo)
 			{
@@ -1322,7 +1326,10 @@ static void doOneMainLoopIter()
 
 		// Leave the viewport covering the whole target, so anything drawn afterwards is not confined to one eye.
 		if(draw_stereo)
+		{
 			opengl_engine->setViewportDims(gl_w, gl_h);
+			opengl_engine->setViewIndexInFrame(0);
+		}
 	}
 
 	if(show_imgui_info_window)
