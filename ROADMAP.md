@@ -143,11 +143,33 @@ WebXR
     framebuffer scale of 0.39.  Fill rate is therefore not the binding constraint any more and the per-pixel
     levers - foveation, eye buffer scaling - cannot reach 72 Hz on their own.
 
-    8.5 ms of resolution-independent work on an empty world is not a plausible floor, though.  It is much more
-    likely to be something specific and fixable than an intrinsic cost, which makes finding it the first piece of
-    WebXR work rather than a reason to abandon the target.  The overlay now shows the split: cpu is everything
-    before the draw, gl draw is the draw itself.  Leading suspect is shadow mapping, which renders at its own
-    fixed resolution and so costs the same whatever the canvas size - ?gfx=min is ?gfx=low with it turned off.
+    Three quality profiles, each fitted the same way:
+
+        gfx=high   frame_ms = 10.2 + 6.95 * Mpix     ->  0.27 Mpix/eye at 72 Hz, 6% of a Quest 3 eye
+        gfx=low    frame_ms =  8.5 + 3.90 * Mpix     ->  0.69 Mpix/eye,          15%
+        gfx=min    frame_ms =  7.4 + 2.78 * Mpix     ->  1.17 Mpix/eye,          26%, a 0.51 framebuffer scale
+
+    Two corrections to earlier readings.  The Quest browser's refresh cap is about 72 Hz, not 60: gfx=min reached
+    68 fps.  Every number recorded above is therefore a real measurement and not a capped one, including the
+    first 60 fps reading, which was treated as a cap at the time and was not.
+
+    And the client's own work is negligible - cpu about 0.5 ms, draw submission about 1.1 ms, inside frames of 17
+    to 46 ms, flat across a 2.7x change in pixel count.  Whatever the fixed cost is, it is not main loop work,
+    draw call submission or scene traversal.  That rules out the expensive scenario, which would have meant
+    rewriting batching and culling before any XR code could be written.
+
+    Shadow mapping turned out to be worth 1.1 ms of the fixed term and 1.1 ms per Mpix - real, but only about an
+    eighth of the fixed cost, so not the explanation.  Fitting gfx=high from the two scales where the canvas
+    overflows the window and extrapolating down to scale 1, where it does not, overshoots by 3.8 ms, which
+    suggests a good part of the remaining fixed cost is the browser compositing an oversized canvas - an artifact
+    of how the measurement works that real WebXR would never pay.
+
+    That is where this method stops being useful: the thing we now most want to measure is the thing the method
+    itself contaminates.  Going further means either fence-based GPU timing under WebGL2, or implementing a
+    minimal XR path and measuring it directly.  The second is probably the better spend, because the question the
+    spike existed to answer has an answer: at gfx=min a Quest 3 should hold 72 Hz in stereo at roughly half to
+    two thirds linear resolution on a simple scene, so WebXR is worth attempting.  What it is not worth is
+    attempting at full quality - the render profile is part of the feature, not a tuning pass afterwards.
 
 
 To offer upstream
