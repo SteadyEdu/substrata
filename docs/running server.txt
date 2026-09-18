@@ -115,6 +115,18 @@ that is down or misconfigured will not lose an alert and will not affect anythin
 console and in the alerts file.
 
 
+Several students at once
+------------------------
+scripts/chatbot_concurrency_test.py puts several students in front of a bot at the same time and reports whether a
+private conversation stayed private, how many students the bot actually served, and what happened to latency.
+
+It is pinned to the staging environment - see ROADMAP.md.  Running it on a development laptop measures the laptop:
+one student already waits about twelve seconds for a reply from a 9b model there.
+
+Note that a bot with private conversations turned on serves one student at a time and tells the rest it is busy.
+That is the current design, not a bug, but it means one bot does not serve a class.
+
+
 Checking whether a model is good enough to teach with
 -----------------------------------------------------
 scripts/chatbot_eval.py runs a set of scripted questions against a bot and reports pass/fail, driving it through the
