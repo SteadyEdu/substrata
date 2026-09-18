@@ -164,6 +164,20 @@ static std::vector<float> mem_usage_values;
 
 static bool show_imgui_info_window = false;
 
+// ?glfinish=1.  GL commands only get queued, so timing the draw code measures how long it took to ask for the
+// work, not how long the work took - which is why the draw appears to cost a fraction of a millisecond in a
+// frame that takes forty.  glFinish is meant to close that gap by waiting for the GPU to drain.
+//
+// It does not, in a browser.  WebGL treats finish() as advisory and implementations return immediately, so this
+// flag makes no measurable difference in the web client and the draw figure stays a submission time.  It is
+// kept because it does work in a native build, and because the next person to wonder why the draw looks free
+// deserves to find the answer here rather than discovering it again.  Measuring GPU time under WebGL2 needs a
+// fence - fenceSync plus a polled clientWaitSync, since the spec forbids a blocking timeout.
+static bool sync_gl_for_timing = false;
+#if EMSCRIPTEN
+extern "C" void emscripten_glFinish(void);
+#endif
+
 Reference<RenderStatsWidget> CPU_render_stats_widget;
 Reference<RenderStatsWidget> GPU_render_stats_widget;
 
@@ -370,6 +384,10 @@ int main(int argc, char** argv)
 				const auto diag_res = gfx_queries.find("diag");
 				if((diag_res != gfx_queries.end()) && (diag_res->second == "1"))
 					show_imgui_info_window = true;
+
+				const auto sync_res = gfx_queries.find("glfinish");
+				if((sync_res != gfx_queries.end()) && (sync_res->second == "1"))
+					sync_gl_for_timing = true;
 			}
 		}
 		conPrint("Graphics profile from URL: '" + gfx_profile + "'");
@@ -1317,6 +1335,19 @@ static void doOneMainLoopIter()
 	// Display
 	SDL_GL_SwapWindow(win);
 	FrameMark; // Tracy profiler
+
+	if(sync_gl_for_timing)
+	{
+		// Block until the GPU has finished, so the time below is execution and not just submission.
+		//
+		// gl3w.h is included unconditionally above and rewrites glFinish to its own loaded function pointer,
+		// which does not exist in an Emscripten build - so reach the GLES entry point directly here.
+#if EMSCRIPTEN
+		emscripten_glFinish();
+#else
+		glFinish();
+#endif
+	}
 
 	last_updateGL_time = drawing_timer.elapsed();
 	gl_time_sum += last_updateGL_time;
