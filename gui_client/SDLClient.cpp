@@ -187,6 +187,16 @@ static unsigned int xr_framebuffer_name = 0; // Emscripten GL name for the opaqu
 static int xr_framebuffer_w = 0, xr_framebuffer_h = 0;
 static int xr_frames = 0;
 static int xr_last_num_views = 0;
+static Reference<FrameBuffer> xr_target_framebuffer;
+static bool xr_saved_render_to_offscreen = false;
+static bool xr_saved_draw_overlays = true;
+
+// Per-view data for a frame, written straight into wasm memory by the session code in webclient.html: sixteen
+// floats of projection, sixteen of the world-to-view transform, then four of viewport.  Passing it through a
+// shared buffer avoids marshalling forty numbers across the boundary every frame at ninety frames a second.
+static const int XR_MAX_VIEWS = 4;
+static const int XR_FLOATS_PER_VIEW = 36;
+static float xr_view_data[XR_MAX_VIEWS * XR_FLOATS_PER_VIEW];
 static Timer* xr_timer = NULL;
 
 // gl3w.h is included below and rewrites these to function pointers it loads itself, which do not exist in an
@@ -1478,6 +1488,28 @@ static std::string sanitiseString(const std::string& s)
 
 
 extern "C" EMSCRIPTEN_KEEPALIVE
+float* xrViewBuffer()
+{
+	return xr_view_data;
+}
+
+
+// WebXR's camera space is x right, y up, z backwards.  The engine's is x right, y forwards, z up.  This maps one
+// to the other - (x, y, z) becomes (x, -z, y) - and serves twice over: once to turn the headset's view transform
+// into the engine's convention, and once to place the session's reference space in the z-up world.
+static const Matrix4f xrToWorldBasis()
+{
+	return Matrix4f(Vec4f(1, 0, 0, 0), Vec4f(0, 0, 1, 0), Vec4f(0, -1, 0, 0), Vec4f(0, 0, 0, 1));
+}
+
+
+static const Matrix4f worldToXRBasis()
+{
+	return Matrix4f(Vec4f(1, 0, 0, 0), Vec4f(0, 0, -1, 0), Vec4f(0, 1, 0, 0), Vec4f(0, 0, 0, 1));
+}
+
+
+extern "C" EMSCRIPTEN_KEEPALIVE
 void xrSessionStarted(unsigned int framebuffer_name, int fb_width, int fb_height)
 {
 	conPrint("xrSessionStarted: framebuffer name " + toString(framebuffer_name) + ", " + toString(fb_width) + " x " + toString(fb_height));
@@ -1490,6 +1522,23 @@ void xrSessionStarted(unsigned int framebuffer_name, int fb_width, int fb_height
 
 	delete xr_timer;
 	xr_timer = new Timer();
+
+	// Wrap the session's framebuffer so the engine draws into it.  FrameBuffer's GLuint constructor does not
+	// take ownership, which is what is wanted here: the framebuffer belongs to the session.
+	xr_target_framebuffer = new FrameBuffer(framebuffer_name);
+	opengl_engine->setTargetFrameBuffer(xr_target_framebuffer);
+
+	OpenGLScene* scene = opengl_engine->getCurrentScene();
+
+	// Both eyes share one framebuffer, which rules out the offscreen render path: that buffer is allocated at
+	// the viewport's size and composited back at the origin, so the second eye would land on top of the first.
+	xr_saved_render_to_offscreen = scene->render_to_main_render_framebuffer;
+	scene->render_to_main_render_framebuffer = false;
+
+	// The interface draws in screen space, which in a headset is wrong rather than merely ugly.  Phase four
+	// gives it a place in the world; until then it is better absent than floating on the eye.
+	xr_saved_draw_overlays = scene->draw_overlay_objects;
+	scene->draw_overlay_objects = false;
 
 	emscripten_cancel_main_loop(); // Stop the page's frame loop.  The session drives frames from now on.
 }
@@ -1505,15 +1554,73 @@ void xrFrame(int num_views)
 	if(num_views > 0)
 		xr_last_num_views = num_views;
 
-	// Bind the session's framebuffer and clear it to a slowly changing colour.  If this shows up in the headset
-	// then the session, the framebuffer handover and the frame loop are all working, which is the whole point of
-	// this phase.  Phase two replaces it with the scene.
 	emscripten_glBindFramebuffer(GL_FRAMEBUFFER, xr_framebuffer_name);
-	emscripten_glViewport(0, 0, xr_framebuffer_w, xr_framebuffer_h);
 
-	const float t = xr_timer ? (float)xr_timer->elapsed() : 0.f;
-	emscripten_glClearColor(0.5f + 0.5f * std::sin(t), 0.25f, 0.5f + 0.5f * std::cos(t), 1.f);
-	emscripten_glClear(GL_COLOR_BUFFER_BIT);
+	if(num_views <= 0)
+	{
+		// No pose this frame - tracking has not settled, or the headset is off the face.  Normal, and briefly.
+		// Clear so the compositor is not handed the last frame again, and skip the scene.
+		emscripten_glViewport(0, 0, xr_framebuffer_w, xr_framebuffer_h);
+		emscripten_glClearColor(0.f, 0.f, 0.f, 1.f);
+		emscripten_glClear(GL_COLOR_BUFFER_BIT);
+	}
+	else
+	{
+		const int use_num_views = myMin(num_views, XR_MAX_VIEWS);
+
+		// The session's reference space sits at the player's position in the world.  Where the head is within
+		// that space comes from the headset; where the space itself is comes from the ordinary camera
+		// controller, which is what movement will continue to drive.
+		const Vec4f player_pos = gui_client->cam_controller.getPosition().toVec4fPoint();
+		const Matrix4f world_to_ref_space = Matrix4f::translationMatrix(-player_pos[0], -player_pos[1], -player_pos[2]);
+
+		const Matrix4f to_engine_basis = xrToWorldBasis();
+		const Matrix4f from_engine_basis = worldToXRBasis();
+
+		for(int view = 0; view < use_num_views; ++view)
+		{
+			const float* const v = xr_view_data + (view * XR_FLOATS_PER_VIEW);
+			const float* const proj = v;          // 16 floats, column major
+			const float* const world_to_view = v + 16; // 16 floats, column major
+			const float* const viewport = v + 32;      // x, y, width, height
+
+			const int vp_x = (int)viewport[0], vp_y = (int)viewport[1];
+			const int vp_w = (int)viewport[2], vp_h = (int)viewport[3];
+			if((vp_w <= 0) || (vp_h <= 0))
+				continue;
+
+			// Recover the frustum from the projection the runtime handed us, and express it in the engine's
+			// sensor-and-lens terms.  For a projection matrix in the usual form, the half extents at unit
+			// distance are 1/m0 and 1/m5, and the asymmetry - which is what makes this a per-eye projection
+			// rather than a centred one - is m8/m0 and m9/m5.  Those map exactly onto lens shift, which the
+			// engine already has and already accounts for when culling.
+			const float m0 = proj[0], m5 = proj[5], m8 = proj[8], m9 = proj[9];
+			if((m0 == 0.f) || (m5 == 0.f))
+				continue;
+
+			const float half_width_at_unit_dist = 1.f / m0;
+			const float unit_shift_right        = m8 / m0;
+			const float unit_shift_up           = m9 / m5;
+
+			const float lens_sensor_dist = 1.f; // Free choice: only ratios against it matter.
+			const float sensor_width     = 2.f * half_width_at_unit_dist * lens_sensor_dist;
+
+			// world_to_camera = basis * (world to view, in XR terms) * inverse basis * (world to reference space)
+			const Matrix4f world_to_view_xr(world_to_view);
+			const Matrix4f world_to_camera = to_engine_basis * world_to_view_xr * from_engine_basis * world_to_ref_space;
+
+			opengl_engine->setViewportRect(vp_x, vp_y, vp_w, vp_h);
+			opengl_engine->setViewIndexInFrame(view);
+
+			// Render aspect equal to the viewport's keeps the engine from adjusting the sensor size to fit,
+			// so the frustum stays exactly the one the runtime asked for.
+			const float aspect = (float)vp_w / (float)vp_h;
+			opengl_engine->setPerspectiveCameraTransform(world_to_camera, sensor_width, lens_sensor_dist, aspect,
+				/*lens shift up=*/unit_shift_up * lens_sensor_dist, /*lens shift right=*/unit_shift_right * lens_sensor_dist);
+
+			opengl_engine->draw();
+		}
+	}
 
 	// Publish unconditionally.  An earlier version skipped this when no time had passed, to avoid dividing by
 	// zero, which meant the statistics silently did not appear at all if the timer had not ticked yet - and the
@@ -1534,6 +1641,15 @@ void xrSessionEnded()
 
 	xr_session_active = false;
 	xr_framebuffer_name = 0;
+
+	opengl_engine->setTargetFrameBuffer(NULL); // Back to the page's canvas.
+	xr_target_framebuffer = NULL;
+
+	OpenGLScene* scene = opengl_engine->getCurrentScene();
+	scene->render_to_main_render_framebuffer = xr_saved_render_to_offscreen;
+	scene->draw_overlay_objects = xr_saved_draw_overlays;
+	opengl_engine->setViewportDims(opengl_engine->getViewPortWidth(), opengl_engine->getViewPortHeight()); // Clears the offset.
+	opengl_engine->setViewIndexInFrame(0);
 
 	emscripten_set_main_loop(doOneMainLoopIter, /*fps=*/0, /*simulate_infinite_loop=*/false); // Resume the page's loop.
 }

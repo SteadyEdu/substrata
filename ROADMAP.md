@@ -179,6 +179,17 @@ WebXR
     framebufferScaleFactor is the direct control, with cost going as its square.  Both are now URL parameters -
     ?xrrate= and ?xrscale= - so phase 2 can find the usable combination on hardware instead of by arithmetic.
 
+    Phase 2 is written: both eyes, head tracked, drawn through the XR framebuffer.  The projection conversion is
+    the only subtle part.  A projection matrix in the usual form gives the half extents at unit distance as 1/m0
+    and 1/m5, and the asymmetry that makes it a per-eye projection as m8/m0 and m9/m5 - which map exactly onto
+    the lens shift the engine already has and already culls against, so no new camera entry point was needed.
+    WebXR's camera space is x right, y up, z back and the engine's is x right, y forwards, z up; one basis change
+    serves both to convert the view transform and to place the reference space in the z-up world.
+
+    Verified without a headset by driving a session by hand against a 3360x1760 framebuffer with two asymmetric
+    projections: both halves came back with sky above and ground below, and the two eyes differ - sky 76,110,150
+    against 88,116,152 - which is the asymmetry taking effect rather than the same image drawn twice.
+
     Phase 1, session lifecycle.  An Enter VR button, since a session can only start from a user gesture;
     navigator.xr.isSessionSupported and requestSession('immersive-vr'); a reference space; and swapping the main
     loop over - emscripten_cancel_main_loop() and then let XRSession.requestAnimationFrame call an exported

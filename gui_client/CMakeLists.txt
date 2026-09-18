@@ -1244,8 +1244,8 @@ if(EMSCRIPTEN)
 		"-sSTACK_SIZE=262144"
 		# GL is needed so the WebXR code can register the session's framebuffer in Emscripten's GL object table:
 		# Emscripten addresses GL objects by integer name, and WebXR hands out a JavaScript object.
-		"-sEXPORTED_RUNTIME_METHODS=ccall,GL" # Needed to be able to call into C++ from JS.  Used in emscripten_browser_clipboard.
-		"-sEXPORTED_FUNCTIONS=_processFilePickerFile,_malloc,_free,_main,_xrSessionStarted,_xrFrame,_xrSessionEnded"
+		"-sEXPORTED_RUNTIME_METHODS=ccall,GL,HEAPF32" # Needed to be able to call into C++ from JS.  Used in emscripten_browser_clipboard.
+		"-sEXPORTED_FUNCTIONS=_processFilePickerFile,_malloc,_free,_main,_xrSessionStarted,_xrFrame,_xrSessionEnded,_xrViewBuffer"
 		"-lwebsocket.js" # To use emscripten websockets API: https://emscripten.org/docs/porting/networking.html#emscripten-websockets-api
 		--use-preload-cache # Cache the preloaded data in IndexedDB for subsequent page visits.
 		--preload-file data # Use preloaded data, read it from the 'data' directory in the Emscripten build dir.

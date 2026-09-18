@@ -573,7 +573,30 @@
 			// A pose can be missing for a frame or two, when tracking has not settled or the headset is off the
 			// face.  Skipping those is normal and not an error.
 			var pose = frame.getViewerPose(xrRefSpace);
-			Module._xrFrame(pose ? pose.views.length : 0);
+			if(!pose) { Module._xrFrame(0); return; }
+
+			// Write each view straight into wasm memory rather than passing forty numbers across the boundary
+			// ninety times a second: sixteen floats of projection, sixteen of world-to-view, four of viewport.
+			var layer = session.renderState.baseLayer;
+			var base = Module._xrViewBuffer() >> 2;
+			var heap = Module.HEAPF32;
+			var views = pose.views;
+			var n = Math.min(views.length, 4);
+
+			for(var i = 0; i < n; ++i) {
+				var view = views[i];
+				var o = base + i * 36;
+				heap.set(view.projectionMatrix, o);
+				heap.set(view.transform.inverse.matrix, o + 16);
+
+				var vp = layer.getViewport(view);
+				heap[o + 32] = vp.x;
+				heap[o + 33] = vp.y;
+				heap[o + 34] = vp.width;
+				heap[o + 35] = vp.height;
+			}
+
+			Module._xrFrame(n);
 		}
 
 		function onSessionEnded() {
