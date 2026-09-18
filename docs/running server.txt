@@ -220,6 +220,23 @@ Two things make this go wrong in ways that are hard to read:
 	where san.cnf carries [alt] with DNS:localhost and an IP entry per address.  The server reads the keypair at
 	startup, so restart it afterwards.
 
+Measuring frame rate there
+--------------------------
+Add ?fps=1 to the URL for an on-screen overlay of frame timings, sampled from the requestAnimationFrame callback
+the client renders from.  Read the worst-frame and hitch figures rather than the average: the average saturates
+at the display's refresh cap and so only tells you whether the client is keeping up, never by how much.
+
+Because the average saturates, headroom has to be measured by making the work harder until the frame rate leaves
+the cap.  ?scale=N renders at N times the canvas size - N=2 is four times the pixels, N=3 is nine.  On a Quest
+reporting a 1253x859 canvas, N=3 is about the pixel count stereo WebXR will ask for, so it is the cheapest
+available answer to whether WebXR is worth attempting.  It is a lower bound on the difficulty: WebXR also has to
+traverse the scene per eye and meet a 72 Hz deadline rather than 60.
+
+requestAnimationFrame stops while the page is hidden, which on a headset means every time it is taken off or the
+panel is backgrounded.  Resuming looks exactly like one enormous frame - a 24 second frame was measured this way
+before the overlay learned to tell the two apart.  Those gaps are now counted on the "paused" line instead.
+
+
 A DHCP lease change silently invalidates the certificate's IP entry.  If the device stops connecting after a
 reboot, check the machine's address before looking anywhere else.
 

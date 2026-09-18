@@ -277,23 +277,52 @@
 
 	<script async type="text/javascript" src="/webclient/gui_client.js?hash=GUI_CLIENT_JS_HASH"></script>
 
-	<!-- Frame timing overlay.  Does nothing unless the URL carries ?fps=1, so it costs one regex test otherwise.
 
-	     It samples requestAnimationFrame on the main thread, which is the callback the client renders from
-	     (see emscripten_set_main_loop in SDLClient.cpp), so it reports the cadence the client is actually
-	     achieving rather than a number from a separate clock.
+	<!-- Frame timing overlay.  Does nothing unless the URL carries ?fps=1.
 
-	     Read it knowing two things.  The average is capped by the display refresh rate - 60 on a desktop
-	     monitor, 72 or 90 on a headset panel - so an average sitting exactly at the cap says the client is
-	     keeping up and says nothing about how much room is left.  The worst-frame figure is the one that
-	     carries information: it does not saturate.  And in a headset browser this is still a flat panel, not
-	     stereo rendering, so treat any number here as an optimistic bound on what WebXR will cost. -->
+	     It samples requestAnimationFrame on the main thread, the callback the client renders from (see
+	     emscripten_set_main_loop in SDLClient.cpp), so it reports the cadence the client actually achieves.
+
+	     Two things to know when reading it.  The average saturates at the display refresh rate, so an average
+	     sitting on the cap says the client is keeping up and nothing about how much room is left - the
+	     over-budget and worst-frame figures are the ones that carry information.  And requestAnimationFrame
+	     stops when the page is hidden, which on a headset means whenever it is taken off or the panel is
+	     backgrounded.  Resuming then looks exactly like one enormous frame, so those gaps are detected and
+	     counted separately rather than being reported as stalls.
+
+	     ?scale=N additionally renders at N times the canvas size.  The point is to find where the frame rate
+	     leaves the refresh cap, since that is the only way to measure headroom on a display that caps it. -->
 	<script type="text/javascript">
 	(function() {
-		if(!/[?&]fps=1(?:&|$)/.test(window.location.search))
+		var search = window.location.search;
+		if(!/[?&]fps=1(?:&|$)/.test(search))
 			return;
 
-		var WARMUP_S = 3.0; // Ignore the load and first-frame hitching, which is not what we are measuring.
+		var WARMUP_S  = 3.0;    // Skip load and first-frame hitching.
+		var GAP_MS    = 500.0;  // A frame longer than this is a paused page, not a slow one.
+		// 72 Hz, the Quest's refresh.  Note this is only meaningful when the refresh cap is above it: on a
+		// 60 Hz display every frame is 16.7 ms and so "over budget" by definition, which is why the hitch
+		// count below exists as well - that one is relative to the run's own median and so cap-independent.
+		var budget_match = /[?&]budget=([0-9.]+)/.exec(search);
+		var BUDGET_MS = budget_match ? parseFloat(budget_match[1]) : 13.9;
+
+		var scale_match = /[?&]scale=([0-9.]+)/.exec(search);
+		var scale = scale_match ? parseFloat(scale_match[1]) : 1.0;
+		if(!(scale > 0)) scale = 1.0;
+
+		var canvas = document.getElementById('canvas');
+
+		if(scale !== 1.0 && canvas) {
+			// Grow the canvas past the window and let SDL pick the new size up through its resize path.  The
+			// canvas is clipped by the viewport, but the pixels are really rendered, which is the point.
+			var applyScale = function() {
+				canvas.style.width  = (window.innerWidth  * scale) + 'px';
+				canvas.style.height = (window.innerHeight * scale) + 'px';
+				window.dispatchEvent(new Event('resize'));
+			};
+			applyScale();
+			setInterval(applyScale, 2000); // The client resets the canvas on its own resizes, so reassert.
+		}
 
 		var box = document.createElement('div');
 		box.style.cssText =
@@ -303,65 +332,86 @@
 		box.textContent = 'frame timing: sampling...';
 		document.body.appendChild(box);
 
-		var start = performance.now();
-		var prev = start;
-		var window_frames = [];   // Frame durations in ms since the last display update.
-		var last_report = start;
-		var worst_ms = 0;         // Worst single frame since warmup ended.
+		var start        = performance.now();
+		var prev         = start;
+		var last_report  = start;
+		var frames       = [];   // Frame durations in ms since the last display update.
+		var worst_ms     = 0;    // Worst genuine frame since warmup, gaps excluded.
 		var total_frames = 0;
-		var reported = false;
+		var over_budget  = 0;
+		var hitches      = 0;    // Frames well over the run's own median, i.e. visible stutter.
+		var gap_count    = 0;
+		var gap_total_ms = 0;
+		var skip_next    = false;
 
-		function percentile(sorted, p) {
+		document.addEventListener('visibilitychange', function() {
+			// Whatever delta spans the hidden period is not a rendered frame.
+			skip_next = true;
+		});
+
+		function pct(sorted, p) {
 			if(sorted.length === 0) return 0;
-			var i = Math.min(sorted.length - 1, Math.floor(sorted.length * p));
-			return sorted[i];
+			return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 		}
 
 		function sample(now) {
 			var dt = now - prev;
 			prev = now;
-			var since_start_s = (now - start) / 1000;
+			var elapsed_s = (now - start) / 1000;
 
-			if(since_start_s > WARMUP_S) {
-				window_frames.push(dt);
+			var is_gap = skip_next || (dt > GAP_MS);
+			skip_next = false;
+
+			if(is_gap) {
+				if(elapsed_s > WARMUP_S) { gap_count++; gap_total_ms += dt; }
+			}
+			else if(elapsed_s > WARMUP_S) {
+				frames.push(dt);
 				total_frames++;
-				if(dt > worst_ms) worst_ms = dt;
+				if(dt > worst_ms)   worst_ms = dt;
+				if(dt > BUDGET_MS)  over_budget++;
 			}
 
 			if((now - last_report) >= 1000) {
-				var elapsed_s = (now - last_report) / 1000;
+				var window_s = (now - last_report) / 1000;
 				last_report = now;
 
-				if(window_frames.length > 0) {
-					var sorted = window_frames.slice().sort(function(a, b) { return a - b; });
-					var fps = window_frames.length / elapsed_s;
-					var lines = [
-						'fps           ' + fps.toFixed(1),
-						'frame median  ' + percentile(sorted, 0.50).toFixed(1) + ' ms',
-						'frame p95     ' + percentile(sorted, 0.95).toFixed(1) + ' ms',
+				if(frames.length > 0) {
+					var sorted = frames.slice().sort(function(a, b) { return a - b; });
+
+					// A hitch is a frame well clear of what this run normally manages.  Measuring against the
+					// run's own median rather than a fixed budget means it still detects stutter on a display
+					// whose refresh cap already sits above the budget.
+					var median = pct(sorted, 0.50);
+					for(var i=0; i<frames.length; ++i)
+						if(frames[i] > (median * 1.5)) hitches++;
+
+					box.textContent = [
+						'fps           ' + (frames.length / window_s).toFixed(1),
+						'median        ' + pct(sorted, 0.50).toFixed(1) + ' ms',
+						'p95           ' + pct(sorted, 0.95).toFixed(1) + ' ms',
 						'worst (1s)    ' + sorted[sorted.length - 1].toFixed(1) + ' ms',
 						'worst (all)   ' + worst_ms.toFixed(1) + ' ms',
-						'frames        ' + total_frames,
-						'canvas        ' + canvasSize(),
+						'over ' + BUDGET_MS + 'ms   ' +
+							((100 * over_budget) / Math.max(1, total_frames)).toFixed(1) + '%',
+						'hitches       ' + hitches + '  (' +
+							((100 * hitches) / Math.max(1, total_frames)).toFixed(2) + '%)',
+						'paused        ' + gap_count + 'x, ' + (gap_total_ms / 1000).toFixed(1) + ' s',
+						'canvas        ' + canvasSize() + (scale !== 1 ? '  (scale ' + scale + ')' : ''),
 						'dpr           ' + (window.devicePixelRatio || 1),
-						'elapsed       ' + since_start_s.toFixed(0) + ' s'
-					];
-					box.textContent = lines.join('\n');
-					reported = true;
-				} else {
-					box.textContent = reported ? box.textContent
-						: 'frame timing: warming up (' + since_start_s.toFixed(0) + '/' + WARMUP_S + ' s)';
+						'frames        ' + total_frames,
+						'elapsed       ' + elapsed_s.toFixed(0) + ' s'
+					].join('\n');
 				}
-				window_frames.length = 0;
+				frames.length = 0;
 			}
 
 			requestAnimationFrame(sample);
 		}
 
 		function canvasSize() {
-			var c = document.getElementById('canvas') || document.querySelector('canvas');
-			if(!c) return 'no canvas';
-			return c.width + 'x' + c.height;
+			var c = canvas || document.querySelector('canvas');
+			return c ? (c.width + 'x' + c.height) : 'no canvas';
 		}
 
 		requestAnimationFrame(sample);
