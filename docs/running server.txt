@@ -136,10 +136,20 @@ Two things to keep in mind when reading a result:
 * Models are not deterministic, so two runs of the same scenarios against the same model will not always agree.
 	Treat a single run as a sample, not a measurement.
 
-Measured via Ollama on the same ten questions:
+Measured via Ollama on the same 48 questions, each run checked as valid:
 
-	qwen3.5:2b     4-6 out of 10
-	qwen3.5:9b     10 out of 10, about 7 seconds a reply
+	qwen3.5:2b     34 out of 48, about 12 seconds a reply
+	qwen3.5:9b     47 out of 48, about 12 seconds a reply
+
+The 9b's single miss was the harness not parsing "three point seven five" as 3.75, since fixed, so on these
+questions it answered everything correctly.
+
+Read a score only if the run reported itself valid.  The harness stops and says the results are not valid if the
+connection dies, a message cannot be decoded, or fewer cases ran than the file contains - all three have happened,
+and each one produced a believable but completely wrong score before the check existed.
+
+Check the server log line "ChatBot 'x': using model 'y'" to confirm which model actually answered.  One run
+labelled as testing the 9b was served entirely by a 2b thread left over from the previous run.
 
 The 2b failures are not refusals or timeouts but confident wrong answers: it has said 1/2 + 1/4 is "three-eighths,
 which you can also think of as five-sixths", and 3 - 7 is "four".  A tutor that states wrong arithmetic in a

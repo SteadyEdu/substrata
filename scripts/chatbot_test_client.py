@@ -57,7 +57,19 @@ class Conn:
     def read_exactly(self, n):
         buf = b''
         while len(buf) < n:
-            chunk = self.sock.recv(n - len(buf))
+            try:
+                chunk = self.sock.recv(n - len(buf))
+            except (BlockingIOError, ssl.SSLWantReadError):
+                # "No data yet" is not an error.  A socket created with a timeout is non-blocking underneath, and a
+                # TLS record can arrive in pieces, so this fires in normal operation.  Treating it as fatal killed the
+                # reader mid-run and made a perfectly healthy server look like a model that had stopped answering.
+                time.sleep(0.01)
+                continue
+            except ssl.SSLError as e:
+                if 'WANT_READ' in str(e) or 'WANT_WRITE' in str(e):
+                    time.sleep(0.01)
+                    continue
+                raise
             if not chunk:
                 raise EOFError('server closed the connection')
             buf += chunk
@@ -134,9 +146,15 @@ class Reader(threading.Thread):
         self.on_logged_in = on_logged_in
         self.running = True
         self.error = None
+        self.decode_errors = 0
+        self.first_decode_error = None
         self.avatars = {}  # avatar UID -> name, learned from the avatar messages the server sends.
 
     def run(self):
+        # A decoding problem in one message must not stop us reading the rest.  An earlier version let any exception
+        # kill this thread silently: the socket stayed open, questions kept being sent and answered, and every reply
+        # from that point was simply never seen.  The run then looked like a model that degraded halfway through,
+        # which is a far more plausible and far more misleading story than "the test harness broke".
         try:
             while self.running:
                 header = self.conn.read_exactly(8)
@@ -145,6 +163,17 @@ class Reader(threading.Thread):
                     raise ValueError('bad message length %d for type %d' % (msg_len, msg_type))
                 body = self.conn.read_exactly(msg_len - 8)
 
+                try:
+                    self._handle(msg_type, body)
+                except Exception as e:  # noqa: BLE001 - one bad message, keep reading.
+                    self.decode_errors += 1
+                    if self.first_decode_error is None:
+                        self.first_decode_error = 'msg type %d, %d bytes: %r' % (msg_type, len(body), e)
+        except Exception as e:  # noqa: BLE001 - connection level: nothing more will arrive.
+            if self.running:
+                self.error = e
+
+    def _handle(self, msg_type, body):
                 if msg_type == CHAT_MESSAGE_ID:
                     name, off = parse_string(body, 0)
                     text, off = parse_string(body, off)
@@ -165,9 +194,6 @@ class Reader(threading.Thread):
                             pass
                 elif msg_type == LOGGED_IN_MESSAGE_ID:
                     self.on_logged_in()
-        except Exception as e:  # noqa: BLE001 - a test tool; report and stop.
-            if self.running:
-                self.error = e
 
 
 
@@ -184,6 +210,7 @@ class Session:
         self.replies = []   # (name, text, private) from anyone but us.
         self.echoes = []    # (text, private) - our own messages, echoed back.
         self._logged_in = threading.Event()
+        self._consumed = 0  # Replies already attributed to a question.
 
         bot_pos = list(bot_pos)
         # Stand in front of the bot and look straight at it: a bot only converses with someone who has been looking
@@ -197,6 +224,9 @@ class Session:
 
         raw = socket.create_connection((host, port), timeout=30)
         self.sock = ctx.wrap_socket(raw, server_hostname=host)
+        # Back to blocking once the handshake is done: the reader is a dedicated thread whose whole job is to wait for
+        # the next message, and timeouts are handled per question in say() instead.
+        self.sock.settimeout(None)
         self.conn = Conn(self.sock)
 
         self._handshake(world)
@@ -286,12 +316,39 @@ class Session:
             time.sleep(0.25)
         return bool(self.replies)
 
+    def settle(self, quiet_period=5.0, timeout=30.0):
+        """Wait until no reply has arrived for quiet_period, and report anything that turned up.
+
+        Without this, a slow model silently corrupts a scripted run: the reply to question N arrives after we have
+        already sent question N+1, and every answer from then on is attributed to the wrong question.  That happened
+        with a 2b model answering in ~25s, and the results looked like nonsense from the model rather than a fault in
+        the harness.  Settling before each question keeps replies and questions lined up, and returns any late ones so
+        the caller can say so rather than quietly mis-scoring them.
+        """
+        deadline = time.time() + timeout
+        seen = len(self.replies)
+        quiet_until = time.time() + quiet_period
+        while time.time() < quiet_until and time.time() < deadline:
+            time.sleep(0.25)
+            if len(self.replies) != seen:
+                seen = len(self.replies)
+                quiet_until = time.time() + quiet_period
+
+        late = self.replies[self._consumed:]
+        self._consumed = len(self.replies)
+        return late
+
     def say(self, text, reply_timeout=90.0, quiet_period=5.0):
         """Send a message and return the bot's reply as a single string.
 
         The bot streams its answer a sentence at a time, so wait for a quiet period after the first sentence rather
         than taking only the first one.  Returns '' if nothing came back in time.
         """
+        self.settle(quiet_period=quiet_period)  # Flush any reply still in flight from the previous question.
+
+        if self.reader.error is not None:
+            raise RuntimeError('connection to the server is dead: %r' % (self.reader.error,))
+
         before = len(self.replies)
         self.conn.write(message(CHAT_MESSAGE_ID, s_str(text)))
 
@@ -310,6 +367,7 @@ class Session:
                 last = len(self.replies)
                 quiet_until = time.time() + quiet_period
 
+        self._consumed = len(self.replies)
         return ' '.join(r[1].strip() for r in self.replies[before:])
 
     def all_replies_private(self):

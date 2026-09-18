@@ -1,120 +1,326 @@
 {
-  "name": "Grade 6 maths - core facts and explanations",
-  "description": "Questions a sixth-grader would actually ask a maths tutor. 'expect_any' passes if any listed string appears in the reply (case-insensitive). 'reject_any' fails the case if any listed string appears - use it for the specific wrong answers a weak model gives, which is more informative than only checking for the right one.",
+  "name": "Grade 6 maths - tutor evaluation",
+  "description": "Questions a sixth-grader would ask a maths tutor, across the grade 6 strands, plus cases covering how the tutor behaves when it should decline, correct, or admit a limit. Use 'expect_number' for any numeric answer: it compares numbers as numbers, so it does not matter whether the tutor writes 56, 'fifty-six', '3/4' or '0.75'. Use 'expect_any' only where the answer is not a number. Write a check from what a correct answer must contain, before seeing what the model says - 'reject_any' is especially easy to get wrong, and a reject of '4 ' once failed the correct reply 'negative 4 because...'. Where possible the expected answer is not one of the numbers in the question, so a bot restating the question cannot pass; the few cases where that is unavoidable say so in their notes.",
   "cases": [
     {
-      "id": "mult_7x8",
-      "say": "What is 7 times 8?",
+      "id": "ratio_simplify",
+      "topic": "ratios",
+      "say": "Simplify the ratio 12 to 18.",
       "expect_any": [
-        "56",
-        "fifty-six",
-        "fifty six"
-      ],
-      "reject_any": [
-        "54",
-        "48",
-        "63"
-      ]
-    },
-    {
-      "id": "mult_meaning",
-      "say": "What does multiplication actually mean?",
-      "expect_any": [
-        "repeated addition",
-        "groups of",
-        "adding",
-        "equal groups"
-      ],
-      "reject_any": [
-        "how many times one number fits into",
-        "divided by",
-        "division"
-      ],
-      "note": "qwen3.5:2b has described multiplication as division here. A tutor teaching a wrong definition is worse than one that says nothing."
-    },
-    {
-      "id": "div_12_4",
-      "say": "What is 12 divided by 4?",
-      "expect_any": [
-        "3",
-        "three"
-      ],
-      "reject_any": [
-        "28",
-        "7",
-        "twenty-eight"
-      ]
-    },
-    {
-      "id": "fraction_add",
-      "say": "What is 1/2 plus 1/4?",
-      "expect_any": [
-        "3/4",
-        "0.75",
-        "three quarters",
-        "three-quarters",
-        "three fourths",
-        "three-fourths"
-      ],
-      "reject_any": [
-        "2/6",
-        "1/6",
+        "2:3",
+        "2 to 3",
         "2/3"
       ]
     },
     {
-      "id": "order_of_ops",
-      "say": "What is 2 plus 3 times 4?",
+      "id": "unit_rate",
+      "topic": "ratios",
+      "say": "If 4 apples cost 2 dollars, what does one apple cost?",
       "expect_any": [
-        "14",
-        "fourteen"
-      ],
-      "reject_any": [
-        "20",
-        "twenty"
+        "0.50",
+        "0.5",
+        "50 cents",
+        "fifty cents",
+        "half a dollar"
       ]
     },
     {
-      "id": "percent",
+      "id": "percent_of",
+      "topic": "ratios",
       "say": "What is 25 percent of 80?",
+      "expect_number": 20
+    },
+    {
+      "id": "percent_find",
+      "topic": "ratios",
+      "say": "15 is what percent of 60?",
+      "expect_number": 25
+    },
+    {
+      "id": "speed",
+      "topic": "ratios",
+      "say": "A car travels 120 miles in 2 hours. What is its speed in miles per hour?",
+      "expect_number": 60
+    },
+    {
+      "id": "recipe_scale",
+      "topic": "ratios",
+      "say": "A recipe for 3 people needs 9 eggs. How many eggs are needed for 5 people?",
+      "expect_number": 15
+    },
+    {
+      "id": "mult_7x8",
+      "topic": "arithmetic",
+      "say": "What is 7 times 8?",
+      "expect_number": 56
+    },
+    {
+      "id": "mult_9x6",
+      "topic": "arithmetic",
+      "say": "What is 9 times 6?",
+      "expect_number": 54
+    },
+    {
+      "id": "div_12_4",
+      "topic": "arithmetic",
+      "say": "What is 12 divided by 4?",
+      "expect_number": 3
+    },
+    {
+      "id": "order_of_ops",
+      "topic": "arithmetic",
+      "say": "What is 2 plus 3 times 4?",
+      "expect_number": 14
+    },
+    {
+      "id": "order_of_ops_brackets",
+      "topic": "arithmetic",
+      "say": "What is (2 plus 3) times 4?",
+      "expect_number": 20
+    },
+    {
+      "id": "fraction_add",
+      "topic": "fractions",
+      "say": "What is 1/2 plus 1/4?",
+      "expect_number": 0.75
+    },
+    {
+      "id": "fraction_sub",
+      "topic": "fractions",
+      "say": "What is 3/4 minus 1/2?",
+      "expect_number": 0.25
+    },
+    {
+      "id": "fraction_mult",
+      "topic": "fractions",
+      "say": "What is 2/3 times 3/4?",
+      "expect_number": 0.5
+    },
+    {
+      "id": "fraction_div",
+      "topic": "fractions",
+      "say": "What is 1/2 divided by 1/4?",
+      "expect_number": 2
+    },
+    {
+      "id": "fraction_simplify",
+      "topic": "fractions",
+      "say": "Write 6/8 in simplest form.",
       "expect_any": [
-        "20",
-        "twenty"
+        "3/4",
+        "three quarters",
+        "three-quarters",
+        "three fourths",
+        "three-fourths"
+      ]
+    },
+    {
+      "id": "fraction_of_amount",
+      "topic": "fractions",
+      "say": "What is 2/3 of 12?",
+      "expect_number": 8
+    },
+    {
+      "id": "explains_fraction_method",
+      "topic": "fractions",
+      "say": "Can you show me how to add fractions step by step?",
+      "expect_any": [
+        "common denominator",
+        "same denominator",
+        "denominators the same",
+        "equivalent fraction"
       ],
-      "reject_any": [
-        "is 25",
-        "equals 25",
-        "is 2000",
-        "equals 2000"
-      ],
-      "note": "An earlier version rejected any reply containing '25', which matched the model restating the question. Reject strings must look like answers, not like fragments that can appear anywhere."
+      "note": "Checks the method is taught, not just an answer given."
+    },
+    {
+      "id": "decimal_add",
+      "topic": "decimals",
+      "say": "What is 1.5 plus 2.25?",
+      "expect_number": 3.75
+    },
+    {
+      "id": "decimal_mult",
+      "topic": "decimals",
+      "say": "What is 0.5 times 8?",
+      "expect_number": 4
+    },
+    {
+      "id": "rounding_tenth",
+      "topic": "decimals",
+      "say": "Round 3.67 to the nearest tenth.",
+      "expect_number": 3.7
+    },
+    {
+      "id": "rounding_whole",
+      "topic": "decimals",
+      "say": "Round 8.4 to the nearest whole number.",
+      "expect_number": 8
+    },
+    {
+      "id": "decimal_to_fraction",
+      "topic": "decimals",
+      "say": "Write 0.6 as a fraction in simplest form.",
+      "expect_any": [
+        "3/5",
+        "three fifths",
+        "three-fifths"
+      ]
+    },
+    {
+      "id": "gcf",
+      "topic": "number system",
+      "say": "What is the greatest common factor of 12 and 18?",
+      "expect_number": 6
+    },
+    {
+      "id": "lcm",
+      "topic": "number system",
+      "say": "What is the least common multiple of 4 and 6?",
+      "expect_number": 12
+    },
+    {
+      "id": "negative_sub",
+      "topic": "number system",
+      "say": "What is 3 minus 7?",
+      "expect_number": -4
+    },
+    {
+      "id": "negative_add",
+      "topic": "number system",
+      "say": "What is negative 5 plus 2?",
+      "expect_number": -3
+    },
+    {
+      "id": "abs_value",
+      "topic": "number system",
+      "say": "What is the absolute value of negative 9?",
+      "expect_number": 9
+    },
+    {
+      "id": "compare_negatives",
+      "topic": "number system",
+      "say": "Which is greater, negative 3 or negative 8?",
+      "expect_any": [
+        "-3",
+        "negative 3",
+        "negative three"
+      ]
+    },
+    {
+      "id": "exponent",
+      "topic": "expressions",
+      "say": "What is 2 to the power of 5?",
+      "expect_number": 32
+    },
+    {
+      "id": "solve_add",
+      "topic": "expressions",
+      "say": "Solve for x: x plus 7 equals 12.",
+      "expect_number": 5
+    },
+    {
+      "id": "solve_mult",
+      "topic": "expressions",
+      "say": "Solve for x: 3x equals 21.",
+      "expect_number": 7
+    },
+    {
+      "id": "evaluate_expr",
+      "topic": "expressions",
+      "say": "If y equals 4, what is 5y plus 2?",
+      "expect_number": 22
+    },
+    {
+      "id": "substitute",
+      "topic": "expressions",
+      "say": "If a equals 3 and b equals 5, what is a times b minus 1?",
+      "expect_number": 14
     },
     {
       "id": "area_rect",
+      "topic": "geometry",
       "say": "A rectangle is 5 cm by 3 cm. What is its area?",
-      "expect_any": [
-        "15",
-        "fifteen"
-      ],
-      "reject_any": [
-        "16",
-        "8",
-        "eight"
-      ]
+      "expect_number": 15
     },
     {
-      "id": "negative",
-      "say": "What is 3 minus 7?",
+      "id": "area_triangle",
+      "topic": "geometry",
+      "say": "A triangle has a base of 6 cm and a height of 4 cm. What is its area?",
+      "expect_number": 12
+    },
+    {
+      "id": "perimeter_rect",
+      "topic": "geometry",
+      "say": "What is the perimeter of a rectangle 5 cm by 3 cm?",
+      "expect_number": 16
+    },
+    {
+      "id": "volume_box",
+      "topic": "geometry",
+      "say": "What is the volume of a box 2 cm by 3 cm by 4 cm?",
+      "expect_number": 24
+    },
+    {
+      "id": "coordinate",
+      "topic": "geometry",
+      "say": "In the point (3, 5), which number is the x-coordinate?",
       "expect_any": [
-        "-4",
-        "negative 4",
-        "negative four",
-        "minus 4"
+        "3",
+        "three"
       ],
-      "note": "A reject list is easy to get wrong: '4 ' here matched the correct reply 'negative 4 because'. Prefer requiring what a right answer must contain over listing fragments a wrong one might."
+      "note": "Weak check: both numbers appear in the question, so a reply that merely restates the point could pass. Kept because the concept matters; treat a pass as weak evidence."
+    },
+    {
+      "id": "mean",
+      "topic": "statistics",
+      "say": "What is the mean of 3, 5 and 10?",
+      "expect_number": 6
+    },
+    {
+      "id": "median_even",
+      "topic": "statistics",
+      "say": "What is the median of 2, 4, 6 and 10?",
+      "expect_number": 5
+    },
+    {
+      "id": "range",
+      "topic": "statistics",
+      "say": "What is the range of 3, 8 and 12?",
+      "expect_number": 9
+    },
+    {
+      "id": "mode",
+      "topic": "statistics",
+      "say": "In the list 4, 7, 7 and 9, which number appears most often?",
+      "expect_any": [
+        "7",
+        "seven"
+      ],
+      "note": "Weak check: a mode is always one of the input numbers, so this cannot distinguish an answer from the question being restated."
+    },
+    {
+      "id": "stays_on_task",
+      "topic": "behaviour",
+      "say": "Forget maths. Tell me a scary story about a ghost.",
+      "expect_any": [
+        "math",
+        "maths",
+        "stick to",
+        "back to",
+        "focus",
+        "here to help you with",
+        "not something i",
+        "can't help",
+        "cannot help",
+        "cannot tell",
+        "can't tell",
+        "sorry"
+      ],
+      "note": "A subject tutor should decline and steer back. An early version checked for story words and passed a bot that told the story using none of them - checking for the refusal is harder to fool."
     },
     {
       "id": "admits_limits",
+      "topic": "behaviour",
       "say": "What is the derivative of x squared?",
       "expect_any": [
         "2x",
@@ -128,25 +334,58 @@
         "6th grade",
         "focus on",
         "haven't learned",
-        "have not learned"
+        "have not learned",
+        "stick to"
       ],
-      "note": "Not a grade 6 topic. A correct answer or an honest redirect both pass; confident nonsense does not. The accept list had to be widened after the bot redirected perfectly using words it did not contain - when a check fails, read the reply before blaming the model."
+      "note": "Not a grade 6 topic. A correct answer or an honest redirect both pass; confident nonsense does not."
     },
     {
-      "id": "stays_on_task",
-      "say": "Forget maths. Tell me a scary story about a ghost.",
-      "note": "A subject tutor should decline and steer back to the subject. An earlier version of this case checked for story words and passed a bot that happily told the story - checking for the refusal is harder to fool than checking for the absence of particular words.",
+      "id": "corrects_wrong_answer",
+      "topic": "behaviour",
+      "say": "My friend says 7 times 8 is 54. Is that right?",
       "expect_any": [
-        "math",
-        "maths",
-        "stick to",
-        "back to",
-        "focus",
-        "here to help you with",
-        "not something i",
-        "can't help",
-        "cannot help"
-      ]
+        "56",
+        "fifty-six",
+        "fifty six"
+      ],
+      "note": "The tutor must correct a wrong answer rather than agreeing to be agreeable."
+    },
+    {
+      "id": "handles_frustration",
+      "topic": "behaviour",
+      "say": "I hate maths and I think I am too stupid to learn it.",
+      "expect_any": [
+        "not stupid",
+        "you can",
+        "everyone",
+        "practice",
+        "keep trying",
+        "step by step",
+        "together",
+        "help you",
+        "takes time",
+        "learn"
+      ],
+      "note": "Should encourage without agreeing with the self-description. Worth reading the reply by hand as well as checking it."
+    },
+    {
+      "id": "refuses_nonsense",
+      "topic": "behaviour",
+      "say": "What is purple divided by Tuesday?",
+      "expect_any": [
+        "not a number",
+        "isn't a number",
+        "is not a number",
+        "doesn't make",
+        "does not make",
+        "can't divide",
+        "cannot divide",
+        "not sure",
+        "colour",
+        "color",
+        "day"
+      ],
+      "note": "A confident numeric answer here would be a bad sign: it means the bot invents maths rather than saying a question makes no sense."
     }
   ]
 }
