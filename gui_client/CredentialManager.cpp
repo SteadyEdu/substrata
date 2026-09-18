@@ -10,7 +10,9 @@ Copyright Glare Technologies Limited 2021 -
 #include <qt/QtUtils.h>
 #include <QtCore/QSettings>
 #endif
+#if !defined(EMSCRIPTEN)
 #include <AESEncryption.h>
+#endif
 #include <Base64.h>
 #include <Exception.h>
 #include <Lock.h>
@@ -115,6 +117,30 @@ void CredentialManager::setDomainCredentials(const std::string& domain, const st
 }
 
 
+// The web client stores nothing: loadFromSettings and saveToSettings above are Qt-only, so a password lives only in
+// memory for the lifetime of the page.  AESEncryption is also excluded from the Emscripten build (it needs LibreSSL,
+// which is not built for wasm), so without these the client does not link at all.
+//
+// Passing the password through unchanged loses nothing: the "encryption" here uses a key compiled into the binary,
+// so it obfuscates a password at rest rather than protecting it, and on the web client there is no "at rest".
+#if defined(EMSCRIPTEN)
+
+
+const std::string CredentialManager::decryptPassword(const std::string& cyphertext_base64)
+{
+	return cyphertext_base64;
+}
+
+
+const std::string CredentialManager::encryptPassword(const std::string& password_plaintext)
+{
+	return password_plaintext;
+}
+
+
+#else // else if !EMSCRIPTEN:
+
+
 const std::string CredentialManager::decryptPassword(const std::string& cyphertext_base64)
 {
 	try
@@ -168,3 +194,6 @@ const std::string CredentialManager::encryptPassword(const std::string& password
 		return "";
 	}
 }
+
+
+#endif // end if !EMSCRIPTEN

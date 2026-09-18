@@ -793,7 +793,13 @@ void WebServerRequestHandler::handleRequest(const web::RequestInfo& request, web
 					std::string contents;
 					FileUtils::readEntireFile(data_store->webclient_dir + "/" + path_relative_to_webclient_dir, contents);
 					const std::string content_type = web::ResponseUtils::getContentTypeForPath(path_relative_to_webclient_dir);
-					web::ResponseUtils::writeHTTPOKHeaderAndData(reply_info, contents.data(), contents.length(), content_type);
+
+					// Use the writer that sets the cross-origin isolation headers, and a max-age of 0 so a rebuilt file is
+					// picked up immediately, which is the point of dev mode.  Without COOP/COEP on every file the web client
+					// does not run at all: its pthread workers load gui_client.js, and a worker script served without those
+					// headers is blocked, so all thirty workers fail and the client dies before it draws anything.
+					web::ResponseUtils::writeHTTPOKHeaderAndDataWithCacheMaxAge(reply_info, contents.data(), contents.length(),
+						content_type, /*max_age_s=*/0);
 				}
 				catch(FileUtils::FileUtilsExcep& e)
 				{

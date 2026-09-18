@@ -93,6 +93,48 @@ protocol), UDP 7601, and TCP 80 and 443 for the website and web client.  The
 first account registered gets UserID 0, which is the server admin ("god user").
 
 
+Building the web client
+-----------------------
+The web client is the same C++ compiled to WebAssembly.  It does NOT need LLVM: gui_client/CMakeLists.txt only
+includes winter.cmake when not building with Emscripten, so the whole LLVM build is skipped.
+
+Prerequisites beyond the native build:
+
+* Ninja.
+* The Emscripten SDK.  Note emsdk needs Python 3.10 or newer; the macOS system Python is 3.9, so a newer one has to
+  be on PATH before "./emsdk install latest" will run at all.
+* SDL built for Emscripten, and libjpeg-turbo built for Emscripten.
+
+After building libjpeg-turbo for Emscripten, run its install step with the build directory as the prefix:
+
+	cmake --install . --prefix <the emscripten build dir>
+
+The build expects headers in <emscripten build dir>/include, but libjpeg-turbo leaves jconfig.h at the build root
+and jpeglib.h in the source tree, so without this the client fails with "jpeglib.h file not found".
+
+Give the web build its own CYBERSPACE_OUTPUT.  Both builds emit liblibs.a, so sharing an output directory leaves
+whichever built last with an archive the other cannot link - the native server then fails with "archive member '/'
+not a mach-o file", and rebuilding does not fix it because make thinks the target is up to date.  Delete the
+archive to recover.
+
+Then configure and build:
+
+	cmake -DCMAKE_TOOLCHAIN_FILE=<emsdk>/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
+		-DCMAKE_CROSSCOMPILING_EMULATOR=<emsdk>/node/<ver>/bin/node <substrata dir> -G Ninja \
+		-DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_SDL=ON -DCEF_SUPPORT=OFF -DBUILD_SERVER=OFF \
+		-DSDL_BUILD_DIR=<sdl emscripten build dir>
+	ruby <substrata>/scripts/make_emscripten_preload_data.rb <substrata>   # must run before the build
+	cmake --build . --target gui_client
+	ruby <substrata>/scripts/update_webclient_cache_busting_hashes.rb <substrata>
+
+Then set <webclient_dir> in the server config to the web build's test_builds directory, run the server, and visit
+http://localhost/webclient.
+
+The client needs cross-origin isolation to start: it runs on WASM threads, and a worker script served without
+Cross-Origin-Embedder-Policy is blocked, so all thirty workers fail and nothing is drawn.  Every file the client
+loads must carry those headers, not just the HTML.
+
+
 macOS portability fixes applied in this repo
 --------------------------------------------
 Three changes were needed to build on a modern macOS SDK.  The first is ours to
