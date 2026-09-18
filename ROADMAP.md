@@ -162,6 +162,23 @@ WebXR
     registering an ordinary framebuffer, calling the three entry points by hand and reading the pixel back: it
     came out 128,64,255,255, exactly what the C++ clear computes at t=0.
 
+    Two numbers came back from the headset that had been assumptions until then.  The session runs at 90 Hz, not
+    the 72 every earlier calculation used, so the budget is 11.1 ms rather than 13.9.  And the runtime asks for
+    3360x1760, which is 1680x1760 an eye - 2.96 Mpix, about 65% of the 4.56 taken from a spec sheet.  Fewer
+    pixels, less time.
+
+    Against the measured cost model - 5.5 ms a frame, 1.9 ms a view, 2.78 ms a Mpix - native resolution comes to
+    25.7 ms a frame, or 39 fps against the 90 needed.  What fits:
+
+                                          90 Hz               72 Hz
+        as measured                    11% of native       28% of native
+        if page compositing is absent  34% of native       51% of native
+
+    So two levers matter more than anything in the renderer.  Asking for 72 Hz instead of 90 buys 2.8 ms, worth
+    roughly twice the pixels, and smoothness is a cheaper thing to give up in a classroom than legibility.  And
+    framebufferScaleFactor is the direct control, with cost going as its square.  Both are now URL parameters -
+    ?xrrate= and ?xrscale= - so phase 2 can find the usable combination on hardware instead of by arithmetic.
+
     Phase 1, session lifecycle.  An Enter VR button, since a session can only start from a user gesture;
     navigator.xr.isSessionSupported and requestSession('immersive-vr'); a reference space; and swapping the main
     loop over - emscripten_cancel_main_loop() and then let XRSession.requestAnimationFrame call an exported

@@ -399,6 +399,7 @@
 						'paused        ' + gap_count + 'x, ' + (gap_total_ms / 1000).toFixed(1) + ' s',
 						timingLines(),
 						xrLines(),
+						xrConfigLine(),
 						'canvas        ' + canvasSize() + (scale !== 1 ? '  (scale ' + scale + ')' : ''),
 						'dpr           ' + (window.devicePixelRatio || 1),
 						'frames        ' + total_frames,
@@ -432,6 +433,15 @@
 			       'xr views      ' + x.views + '\n' +
 			       'xr buffer     ' + x.fb_w + 'x' + x.fb_h +
 			       (x.views > 1 ? '  (' + Math.round(x.fb_w / x.views) + 'x' + x.fb_h + ' an eye)' : '');
+		}
+
+		// What was asked of the session, as opposed to what came back.  Set once when the session starts.
+		function xrConfigLine() {
+			var c = window.__substrata_xr_cfg;
+			if(!c) return null;
+			return 'xr scale     ' + c.scale.toFixed(2) +
+			       (c.requested ? '  asked ' + c.requested + ' Hz' : '') +
+			       (c.rates.length ? '  offers ' + c.rates.join('/') : '');
 		}
 
 		function canvasSize() {
@@ -496,8 +506,34 @@
 				await gl.makeXRCompatible();
 
 				var session = await navigator.xr.requestSession('immersive-vr');
-				var layer = new XRWebGLLayer(session, gl);
+
+				// ?xrscale=N asks the runtime for a framebuffer N times the native linear resolution.  This is
+				// the main lever on cost: the frame's pixel count goes as the square of it, and at native
+				// resolution this scene does not come close to the frame budget.
+				var search = window.location.search;
+				var scaleMatch = /[?&]xrscale=([0-9.]+)/.exec(search);
+				var fbScale = scaleMatch ? parseFloat(scaleMatch[1]) : 1.0;
+
+				var layerOpts = {};
+				if(fbScale !== 1.0 && fbScale > 0)
+					layerOpts.framebufferScaleFactor = fbScale;
+
+				var layer = new XRWebGLLayer(session, gl, layerOpts);
 				await session.updateRenderState({ baseLayer: layer });
+
+				// ?xrrate=N asks for a refresh rate.  Dropping from 90 Hz to 72 buys 2.8 ms a frame, which at
+				// the measured cost is worth roughly twice the pixels - usually a better trade in a classroom
+				// than the extra smoothness.
+				var rateMatch = /[?&]xrrate=([0-9.]+)/.exec(search);
+				var wantRate = rateMatch ? parseFloat(rateMatch[1]) : 0;
+				var rates = session.supportedFrameRates ? Array.from(session.supportedFrameRates) : [];
+				if(wantRate && session.updateTargetFrameRate && rates.indexOf(wantRate) !== -1) {
+					try { await session.updateTargetFrameRate(wantRate); }
+					catch(e) { console.warn('WebXR: could not set frame rate', wantRate, e); }
+				}
+
+				// Kept apart from the statistics the client publishes, which it overwrites each frame.
+				window.__substrata_xr_cfg = { rates: rates, requested: wantRate || null, scale: fbScale };
 
 				// local-floor puts the origin on the floor, which is what a room-scale scene wants.  Not every
 				// device offers it, so fall back to local, whose origin is wherever the head started.
