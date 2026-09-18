@@ -102,6 +102,22 @@ WebXR
     assessment.  The web client is the right target, and the engine work - per-eye projection, rendering into the
     XR framebuffer, a world-space UI - lands mostly in glare-core.
 
+    First measurements on a Quest, web client as a 2D browser panel, empty root world, ?fps=1&scale=N:
+
+        scale 1   1253x859   1.08 Mpix    ~60 fps (refresh cap)    worst  27.8 ms
+        scale 2   2506x1718  4.31 Mpix    ~24 fps                  worst  41.7 ms
+        scale 3   3759x2577  9.69 Mpix    ~13 fps                  worst   266 ms
+
+    Pixel throughput therefore tops out around 125 Mpix/s.  Stereo WebXR on a Quest 3 wants roughly 9.1 Mpix at
+    72 Hz, about 656 Mpix/s, so on these numbers the client is around five times too slow.  scale 3 is close to
+    the stereo pixel count and ran at 13 fps against the 72 needed, which agrees.
+
+    Do not treat that as the answer yet.  Every one of those numbers was measured at maximum quality, because the
+    client infers "mobile" from a device pixel ratio above 1 and a Quest browser reports exactly 1 - so the
+    headset was handed 4x MSAA, bloom, full shadow detail and offscreen render targets on a mobile GPU.  ?gfx=low
+    now selects the cheap profile explicitly.  Rerun scale 2 and 3 with it before deciding anything: that
+    measurement is what separates "needs an XR render profile" from "needs a different engine".
+
 
 To offer upstream
 -----------------

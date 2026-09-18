@@ -335,8 +335,31 @@ int main(int argc, char** argv)
 #endif
 
 #if EMSCRIPTEN
+		// Render quality profile, taken from the page URL: ?gfx=low or ?gfx=high.
+		//
+		// The guess below infers a mobile device from a device pixel ratio above 1, and a Quest browser defeats
+		// it: the headset reports a ratio of 1 and so is handed the full desktop settings - 4x MSAA, bloom,
+		// full shadow detail, offscreen render targets - on a mobile-class GPU.  Being able to ask for the
+		// cheap profile explicitly is what makes it possible to find out what an XR render profile would buy,
+		// without guessing at the device from numbers that do not identify it.
+		std::string gfx_profile;
+		{
+			char* gfx_search_str = getLocationSearch();
+			const std::string gfx_search(gfx_search_str);
+			free(gfx_search_str);
+			if(gfx_search.size() >= 1)
+			{
+				const std::map<std::string, std::string> gfx_queries = URL::parseQuery(gfx_search.substr(1));
+				const auto res = gfx_queries.find("gfx");
+				if(res != gfx_queries.end())
+					gfx_profile = res->second;
+			}
+		}
+		conPrint("Graphics profile from URL: '" + gfx_profile + "'");
+
 		// device_pixel_ratio > 1 is probably a mobile device
-		const bool low_memory_mode = device_pixel_ratio > 1.0;
+		const bool low_memory_mode = (gfx_profile == "low") ||
+			((gfx_profile != "high") && (device_pixel_ratio > 1.0));
 #else
 		const bool low_memory_mode = false;
 #endif
@@ -682,7 +705,8 @@ int main(int argc, char** argv)
 
 #if EMSCRIPTEN
 		// Just disable bloom on mobile devices, is not working properly, probably due to lack of floating point buffer formats or something similar.
-		const bool bloom = device_pixel_ratio <= 1.0;
+		// Keyed off low_memory_mode rather than the pixel ratio directly, so that ?gfx= turns it off with everything else.
+		const bool bloom = !low_memory_mode;
 #else
 		const bool bloom = settings_store->getBoolValue("setting/bloom", /*default val=*/true);
 #endif
