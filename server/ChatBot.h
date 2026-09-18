@@ -152,6 +152,7 @@ public:
 	// When PRIVATE_CONVERSATION_FLAG is set, the avatar this bot is currently in a private conversation with,
 	// or an invalid UID if it is free.  Runtime-only state; not serialised.
 	UID private_partner_avatar_uid;
+	std::string private_partner_avatar_name; // Kept alongside the UID so transcripts name the user, not just a number.
 
 private:
 	void sendChatMessageToClients(const string_view message, Server* server, WorldStateLock& world_lock); // Send message to clients if non-empty
@@ -160,6 +161,10 @@ private:
 	// transcript logging.  If target_avatar_uid is valid, the message is sent only to that avatar's client and is
 	// marked private; otherwise it is broadcast to the whole world as before.
 	void sendChatMessagePacket(const string_view message, UID target_avatar_uid, Server* server, WorldStateLock& world_lock);
+
+	// Write one bot utterance to the server's transcript log.  target_avatar_uid is invalid for messages spoken to
+	// the whole world.
+	void logSpokenMessage(const string_view message, UID target_avatar_uid, Server* server);
 	Reference<LLMThread> createLLMThread(Server* server);
 
 	// The response from the LLM is streamed back from the cloud server, however we only want to chat in complete sentences, not in fragments of sentences.  So we will scan the accumulated response for sentence ends.

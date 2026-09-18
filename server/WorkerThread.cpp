@@ -9,6 +9,7 @@ Copyright Glare Technologies Limited 2018 -
 #include "ServerWorldState.h"
 #include "ObjectPermissions.h"
 #include "Server.h"
+#include "ChatTranscriptLog.h"
 #include "Screenshot.h"
 #include "SubEthTransaction.h"
 #include "MeshLODGenThread.h"
@@ -2758,6 +2759,7 @@ void WorkerThread::doRun()
 								// If the user is in a private conversation with a chatbot, their message is part of that conversation and must
 								// not go out to world chat.  Work out which case we are in before sending anything.
 								bool msg_is_private = false;
+								ChatTranscriptLog::Record transcript_record; // Filled in under the lock, appended to the log outside it.
 
 								{
 									WorldStateLock lock(world_state->mutex);
@@ -2788,6 +2790,18 @@ void WorkerThread::doRun()
 										if((bot->pos.getDist2(sender_position) < Maths::square(MAX_CHAT_HEAR_DIST)) && bot->capturesChatFrom(client_avatar_uid))
 										{
 											msg_is_private = true;
+
+											// Record the user's side of the private conversation.  Without this, a student could say anything at all to
+											// an AI tutor with no adult ever able to see it.
+											transcript_record.world_name  = cur_world_state->details.name;
+											transcript_record.bot_id      = bot->id;
+											transcript_record.bot_name    = bot->name;
+											transcript_record.avatar_uid  = client_avatar_uid;
+											transcript_record.avatar_name = sender_avatar ? sender_avatar->name : client_user_name;
+											transcript_record.user_id     = client_user_id;
+											transcript_record.is_private  = true;
+											transcript_record.from_bot    = false;
+											transcript_record.text        = msg;
 											break;
 										}
 									}
@@ -2824,6 +2838,9 @@ void WorkerThread::doRun()
 										}
 									}
 								} // End lock scope
+
+								if(msg_is_private)
+									server->chat_transcript_log.append(transcript_record);
 
 								// Send ChatMessageID packet
 								MessageUtils::initPacket(scratch_packet, Protocol::ChatMessageID);

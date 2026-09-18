@@ -12,7 +12,8 @@ Copyright Glare Technologies Limited 2026 -
 class ServerConfig
 {
 public:
-	ServerConfig() : allow_light_mapper_bot_full_perms(false), update_parcel_sales(false), do_lua_http_request_rate_limiting(true), enable_LOD_chunking(true), enable_registration(true), enable_mcp_server(true), do_mcp_rate_limiting(true) {}
+	ServerConfig() : allow_light_mapper_bot_full_perms(false), update_parcel_sales(false), do_lua_http_request_rate_limiting(true), enable_LOD_chunking(true), enable_registration(true), enable_mcp_server(true), do_mcp_rate_limiting(true),
+		log_chat_transcripts(true), chat_transcript_retention_days(0) {}
 	
 	std::string webserver_fragments_dir; // empty string = use default.
 	std::string webserver_public_files_dir; // empty string = use default.
@@ -36,6 +37,14 @@ public:
 	bool do_mcp_rate_limiting; // Should we rate-limit requests to the MCP endpoint (per API-key owner)?
 
 	std::string AI_model_id; // Default value = "xai/grok-4.5"
+
+	// Where chatbot conversation transcripts are written.  Empty string = use the default (server_state_dir +
+	// "/chat_transcripts").  Set log_chat_transcripts to false to turn transcript logging off entirely, which should
+	// only be done on a server that no minors use: a private conversation with an AI that nobody can review afterwards
+	// is not something to ship to a school.
+	bool log_chat_transcripts;
+	std::string chat_transcript_dir;
+	int chat_transcript_retention_days; // 0 = keep transcripts forever, which is the default.
 	std::string shared_LLM_prompt_part; // Default value = "You are a helpful bot in the Substrata Metaverse." etc..  See parseServerConfig in server.cpp for the default.
 };
 

@@ -172,6 +172,9 @@ static ServerConfig parseServerConfig(const std::string& config_path)
 	config.enable_mcp_server					= XMLParseUtils::parseBoolWithDefault(root_elem, "enable_mcp_server", /*default val=*/true);
 	config.do_mcp_rate_limiting					= XMLParseUtils::parseBoolWithDefault(root_elem, "do_mcp_rate_limiting", /*default val=*/true);
 	config.AI_model_id							= XMLParseUtils::parseStringWithDefault(root_elem, "AI_model_id", /*default val=*/"xai/grok-4.5");
+	config.log_chat_transcripts					= XMLParseUtils::parseBoolWithDefault(root_elem, "log_chat_transcripts", /*default val=*/true);
+	config.chat_transcript_dir					= XMLParseUtils::parseStringWithDefault(root_elem, "chat_transcript_dir", /*default val=*/"");
+	config.chat_transcript_retention_days		= XMLParseUtils::parseIntWithDefault(root_elem, "chat_transcript_retention_days", /*default val=*/0);
 	config.shared_LLM_prompt_part				= XMLParseUtils::parseStringWithDefault(root_elem, "shared_LLM_prompt_part", /*default val=*/
 		std::string("You are a helpful bot in the Substrata Metaverse.\n") + 
 		std::string("When a user first talks to you, wave hello to them using the perform_wave_gesture tool function, or bow to them using the perform_bow_gesture tool function.\n") + 
@@ -343,6 +346,24 @@ int main(int argc, char *argv[])
 			return 0;
 		}
 
+
+		if(server.config.log_chat_transcripts)
+		{
+			const std::string transcript_dir = server.config.chat_transcript_dir.empty() ? (server_state_dir + "/chat_transcripts") : server.config.chat_transcript_dir;
+			try
+			{
+				server.chat_transcript_log.open(transcript_dir, server.config.chat_transcript_retention_days);
+			}
+			catch(glare::Exception& e)
+			{
+				// Carry on without transcripts rather than refusing to start, but say so loudly: an operator running a
+				// school server needs to know that conversations are going unrecorded.
+				conPrint("ERROR: failed to open the chatbot transcript log at '" + transcript_dir + "': " + e.what());
+				conPrint("ERROR: chatbot conversations, including private ones, will NOT be recorded.");
+			}
+		}
+		else
+			conPrint("NOTE: chatbot transcript logging is disabled by the server config.");
 
 #if defined(_WIN32) || defined(OSX)
 		server.screenshot_dir = server_state_dir + "/screenshots"; // Dir generated screenshots will be saved to.

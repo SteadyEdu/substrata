@@ -7,6 +7,7 @@ Copyright Glare Technologies Limited 2016 -
 
 
 #include "ServerWorldState.h"
+#include "ChatTranscriptLog.h"
 #include "ThreadManager.h"
 #include "../shared/ResourceManager.h"
 #include "../shared/LuaScriptEvaluator.h"
@@ -153,6 +154,10 @@ public:
 	std::string photo_dir;
 
 	ServerConfig config;
+
+	// Record of what chatbots said, and of what users said to them in private conversations.  Always constructed;
+	// stays inert until opened (see ServerConfig::log_chat_transcripts).
+	ChatTranscriptLog chat_transcript_log;
 
 	Mutex connected_clients_mutex;
 	std::map<WorkerThread*, ServerConnectedClientInfo> connected_clients;

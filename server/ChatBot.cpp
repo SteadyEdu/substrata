@@ -8,6 +8,7 @@ Copyright Glare Technologies Limited 2026 -
 
 #include "Server.h"
 #include "ServerWorldState.h"
+#include "ChatTranscriptLog.h"
 #include "../shared/MessageUtils.h"
 #include "../shared/Protocol.h"
 #include <ai/LLMThread.h>
@@ -138,7 +139,10 @@ ChatBot::EventHandlerResults ChatBot::userMovedAwayFromBotAvatar(AvatarRef other
 		info.attention_timer.pause();
 
 		if(private_partner_avatar_uid == other_avatar->uid)
+		{
 			private_partner_avatar_uid = UID::invalidUID(); // Free the bot up for the next user.
+			private_partner_avatar_name.clear();
+		}
 	}
 
 	return res;
@@ -398,6 +402,31 @@ void ChatBot::sendChatMessagePacket(const string_view message, UID target_avatar
 		server->enqueuePacketToClientWithAvatarUID(scratch_packet, world, target_avatar_uid);
 	else
 		server->enqueuePacketToBroadcastForWorld(scratch_packet, world);
+
+	logSpokenMessage(message, target_avatar_uid, server);
+}
+
+
+void ChatBot::logSpokenMessage(const string_view message, UID target_avatar_uid, Server* server)
+{
+	if(!server->chat_transcript_log.isOpen())
+		return;
+
+	ChatTranscriptLog::Record record;
+	record.world_name  = world ? world->details.name : std::string();
+	record.bot_id      = this->id;
+	record.bot_name    = this->name;
+	record.avatar_uid  = target_avatar_uid;
+	record.is_private  = target_avatar_uid.valid();
+	record.from_bot    = true;
+	record.text        = toString(message);
+
+	// We only know the recipient's name for the user we are privately talking to.  A message spoken to the whole world
+	// has no single recipient, and the avatar UID is left invalid.
+	if(target_avatar_uid == private_partner_avatar_uid)
+		record.avatar_name = private_partner_avatar_name;
+
+	server->chat_transcript_log.append(record);
 }
 
 
@@ -508,7 +537,10 @@ ChatBot::ThinkResults ChatBot::think(Server* server, WorldStateLock& world_lock)
 				this->look_target_avatar = nullptr;
 
 			if(private_partner_avatar_uid == other_avatar->uid)
+			{
 				private_partner_avatar_uid = UID::invalidUID(); // Partner disconnected - free the bot up for the next user.
+				private_partner_avatar_name.clear();
+			}
 
 			// Remove avatar from avatar map
 			auto old_avatar_iterator = it;
@@ -585,7 +617,11 @@ ChatBot::ThinkResults ChatBot::think(Server* server, WorldStateLock& world_lock)
 				other_av_info.conversing = true;
 
 				if(isPrivateConversationBot())
-					private_partner_avatar_uid = other_avatar->uid; // Claim the bot for this user until they leave.
+				{
+					// Claim the bot for this user until they leave.
+					private_partner_avatar_uid  = other_avatar->uid;
+					private_partner_avatar_name = other_avatar->name;
+				}
 			}
 
 			it++;
