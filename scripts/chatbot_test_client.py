@@ -170,6 +170,159 @@ class Reader(threading.Thread):
                 self.error = e
 
 
+
+class Session:
+    """A logged-in connection with an avatar standing in front of a chatbot.
+
+    Separated from the command line so that scripted evaluation (chatbot_eval.py) can drive a bot the same way a
+    student would, rather than testing the model through a different path than the one students use.
+    """
+
+    def __init__(self, host, port, world, username, password, bot_pos, stand_back=2.0, bot_name=None):
+        self.username = username
+        self.bot_name = bot_name
+        self.replies = []   # (name, text, private) from anyone but us.
+        self.echoes = []    # (text, private) - our own messages, echoed back.
+        self._logged_in = threading.Event()
+
+        bot_pos = list(bot_pos)
+        # Stand in front of the bot and look straight at it: a bot only converses with someone who has been looking
+        # at it (isOtherAvatarAttendingToOurAvatar in ChatBot.cpp).
+        self.my_pos = [bot_pos[0] - stand_back, bot_pos[1], bot_pos[2]]
+        self.my_rotation = [0.0, 0.0, 0.0]  # rotation.z is the heading; 0 = looking along +x.
+
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE  # Dev servers use a self-signed certificate.
+
+        raw = socket.create_connection((host, port), timeout=30)
+        self.sock = ctx.wrap_socket(raw, server_hostname=host)
+        self.conn = Conn(self.sock)
+
+        self._handshake(world)
+        self._start_reader()
+        self._log_in(username, password)
+        self._create_avatar(username)
+        self._greet_bot()
+
+    # ---- setup ----
+    def _handshake(self, world):
+        conn = self.conn
+        conn.write(s_u32(CYBERSPACE_HELLO) + s_u32(PROTOCOL_VERSION) + s_u32(CONNECTION_TYPE_UPDATES) + s_str(world))
+
+        if conn.read_u32() != CYBERSPACE_HELLO:
+            raise RuntimeError('server did not return the expected hello')
+
+        response = conn.read_u32()
+        if response in (CLIENT_PROTOCOL_TOO_OLD, CLIENT_PROTOCOL_TOO_NEW):
+            raise RuntimeError('server rejected our protocol version: ' + conn.read_string())
+        if response != CLIENT_PROTOCOL_OK:
+            raise RuntimeError('unexpected protocol response %d' % response)
+
+        peer_version = conn.read_u32()
+        if peer_version >= 41:
+            conn.read_u32()  # server capabilities
+        if peer_version >= 43:
+            conn.read_i32()  # optimised mesh version
+
+        self.my_avatar_uid = conn.read_u64()
+        self.peer_version = peer_version
+
+        if peer_version >= 42:
+            conn.write(s_u32(STREAMING_COMPRESSED_OBJECT_SUPPORT | SENDS_USER_MOVED_CHATBOT_MSGS | PRIVATE_CHAT_SUPPORT))
+
+    def _on_chat(self, name, text, private):
+        if name == self.username:  # The server echoes our own messages back to us.
+            self.echoes.append((text, private))
+            return
+        self.replies.append((name, text, private))
+
+    def _start_reader(self):
+        self.reader = Reader(self.conn, self._on_chat, self._logged_in.set)
+        self.reader.start()
+
+    def _log_in(self, username, password):
+        self.conn.write(message(LOG_IN_MESSAGE, s_str(username) + s_str(password)))
+        if not self._logged_in.wait(timeout=15):
+            raise RuntimeError('did not receive a LoggedIn message - check the username and password')
+
+    def _create_avatar(self, username):
+        avatar = (s_u64(self.my_avatar_uid) + s_str(username) + s_vec3d(self.my_pos) + s_vec3f(self.my_rotation) +
+                  avatar_settings_bytes())
+        self.conn.write(message(CREATE_AVATAR, avatar))
+
+        def keep_alive():
+            while self.reader.running:
+                try:
+                    self.conn.write(message(AVATAR_TRANSFORM_UPDATE,
+                                            s_u64(self.my_avatar_uid) + s_vec3d(self.my_pos) +
+                                            s_vec3f(self.my_rotation) + s_u32(0)))
+                except OSError:
+                    return
+                time.sleep(1.0)
+
+        threading.Thread(target=keep_alive, daemon=True).start()
+
+    def _greet_bot(self):
+        """Find the bot's avatar and tell the server we have walked up to it."""
+        self.bot_uid = None
+        deadline = time.time() + 10
+        while time.time() < deadline and self.bot_uid is None:
+            for uid, name in list(self.reader.avatars.items()):
+                if uid != self.my_avatar_uid and (self.bot_name is None or name == self.bot_name):
+                    self.bot_uid = uid
+                    self.bot_avatar_name = name
+                    break
+            time.sleep(0.25)
+
+        if self.bot_uid is not None:
+            self.conn.write(message(USER_MOVED_NEAR_TO_AVATAR, s_u64(self.bot_uid)))
+
+    # ---- use ----
+    def wait_for_greeting(self, timeout):
+        """Wait for the bot to notice us.  Returns True if it said anything."""
+        deadline = time.time() + timeout
+        while time.time() < deadline and not self.replies:
+            time.sleep(0.25)
+        return bool(self.replies)
+
+    def say(self, text, reply_timeout=90.0, quiet_period=5.0):
+        """Send a message and return the bot's reply as a single string.
+
+        The bot streams its answer a sentence at a time, so wait for a quiet period after the first sentence rather
+        than taking only the first one.  Returns '' if nothing came back in time.
+        """
+        before = len(self.replies)
+        self.conn.write(message(CHAT_MESSAGE_ID, s_str(text)))
+
+        deadline = time.time() + reply_timeout
+        while time.time() < deadline and len(self.replies) == before:
+            time.sleep(0.25)
+
+        if len(self.replies) == before:
+            return ''
+
+        quiet_until = time.time() + quiet_period
+        last = len(self.replies)
+        while time.time() < quiet_until:
+            time.sleep(0.25)
+            if len(self.replies) != last:
+                last = len(self.replies)
+                quiet_until = time.time() + quiet_period
+
+        return ' '.join(r[1].strip() for r in self.replies[before:])
+
+    def all_replies_private(self):
+        return all(r[2] for r in self.replies) and all(e[1] for e in self.echoes)
+
+    def close(self):
+        self.reader.running = False
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--host', default='localhost')
@@ -181,147 +334,43 @@ def main():
     ap.add_argument('--bot-name', default=None, help="Name of the bot's avatar.  Defaults to any other avatar present.")
     ap.add_argument('--stand-back', type=float, default=2.0, help="How far in front of the bot to stand, in metres.")
     ap.add_argument('--say', action='append', default=[], help="A message to send.  Repeatable.")
-    ap.add_argument('--greet-wait', type=float, default=25.0,
+    ap.add_argument('--greet-wait', type=float, default=45.0,
                     help="Seconds to wait for the bot to notice us and greet before saying anything.")
     ap.add_argument('--reply-wait', type=float, default=90.0, help="Seconds to wait for a reply after each message.")
     args = ap.parse_args()
 
     bot_pos = [float(v) for v in args.bot_pos.split(',')]
 
-    # Stand --stand-back metres away along -x and look towards +x, straight at the bot: the bot only starts a
-    # conversation with someone who has been looking at it (see isOtherAvatarAttendingToOurAvatar in ChatBot.cpp).
-    my_pos = [bot_pos[0] - args.stand_back, bot_pos[1], bot_pos[2]]
-    my_rotation = [0.0, 0.0, 0.0]  # rotation.z is the heading; 0 = looking along +x.
-
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE  # Dev servers use a self-signed certificate.
-
-    raw = socket.create_connection((args.host, args.port), timeout=30)
-    sock = ctx.wrap_socket(raw, server_hostname=args.host)
-    conn = Conn(sock)
-
-    # ---- Handshake.  Mirrors ClientThread::doRun(). ----
-    conn.write(s_u32(CYBERSPACE_HELLO) + s_u32(PROTOCOL_VERSION) + s_u32(CONNECTION_TYPE_UPDATES) + s_str(args.world))
-
-    if conn.read_u32() != CYBERSPACE_HELLO:
-        sys.exit('server did not return the expected hello')
-
-    response = conn.read_u32()
-    if response in (CLIENT_PROTOCOL_TOO_OLD, CLIENT_PROTOCOL_TOO_NEW):
-        sys.exit('server rejected our protocol version: ' + conn.read_string())
-    if response != CLIENT_PROTOCOL_OK:
-        sys.exit('unexpected protocol response %d' % response)
-
-    peer_version = conn.read_u32()
-    if peer_version >= 41:
-        conn.read_u32()  # server capabilities
-    if peer_version >= 43:
-        conn.read_i32()  # optimised mesh version
-
-    my_avatar_uid = conn.read_u64()
-    print('connected: server protocol %d, our avatar UID %d' % (peer_version, my_avatar_uid))
-
-    if peer_version >= 42:
-        conn.write(s_u32(STREAMING_COMPRESSED_OBJECT_SUPPORT | SENDS_USER_MOVED_CHATBOT_MSGS | PRIVATE_CHAT_SUPPORT))
-
-    replies = []   # Messages from the bot.
-    echoes = []    # Our own messages, echoed back by the server.
-    logged_in = threading.Event()
-
-    def on_chat(name, text, private):
-        if name == args.username:  # The server echoes our own messages back to us.
-            print('  (echo of our message%s)' % (', private' if private else ', PUBLIC'), flush=True)
-            echoes.append((text, private))
-            return
-        replies.append((name, text, private))
-        print('\n  [%s]%s %s' % (name, ' (private)' if private else '', text), flush=True)
-
-    reader = Reader(conn, on_chat, logged_in.set)
-    reader.start()
-
-    # ---- Log in.  Chat is refused unless the connection is logged in. ----
-    conn.write(message(LOG_IN_MESSAGE, s_str(args.username) + s_str(args.password)))
-    if not logged_in.wait(timeout=15):
-        sys.exit('did not receive a LoggedIn message - check the username and password')
+    session = Session(args.host, args.port, args.world, args.username, args.password, bot_pos,
+                      stand_back=args.stand_back, bot_name=args.bot_name)
+    print('connected: our avatar UID %d' % session.my_avatar_uid)
     print('logged in as %s' % args.username)
-
-    # ---- Create our avatar, standing in front of the bot and facing it. ----
-    avatar = s_u64(my_avatar_uid) + s_str(args.username) + s_vec3d(my_pos) + s_vec3f(my_rotation) + avatar_settings_bytes()
-    conn.write(message(CREATE_AVATAR, avatar))
-    print('avatar created at %s, looking at the bot at %s' % (my_pos, bot_pos))
-
-    # Keep the transform fresh so the bot's attention timer keeps running.
-    def keep_alive():
-        while reader.running:
-            try:
-                conn.write(message(AVATAR_TRANSFORM_UPDATE,
-                                   s_u64(my_avatar_uid) + s_vec3d(my_pos) + s_vec3f(my_rotation) + s_u32(0)))
-            except OSError:
-                return
-            time.sleep(1.0)
-
-    threading.Thread(target=keep_alive, daemon=True).start()
-
-    # Find the bot's avatar and tell the server we have moved next to it, which is what makes the bot start
-    # paying attention to us (ChatBot::userMovedNearToBotAvatar).
-    bot_uid = None
-    deadline = time.time() + 10
-    while time.time() < deadline and bot_uid is None:
-        for uid, name in list(reader.avatars.items()):
-            if uid != my_avatar_uid and (args.bot_name is None or name == args.bot_name):
-                bot_uid = uid
-                print('found avatar %d named %r - treating it as the bot' % (uid, name))
-                break
-        time.sleep(0.25)
-
-    if bot_uid is not None:
-        conn.write(message(USER_MOVED_NEAR_TO_AVATAR, s_u64(bot_uid)))
-    else:
+    print('avatar created at %s, looking at the bot at %s' % (session.my_pos, bot_pos))
+    if session.bot_uid is None:
         print('WARNING: did not find the bot avatar; it may not respond')
+    else:
+        print('found avatar %d named %r - treating it as the bot' % (session.bot_uid, session.bot_avatar_name))
 
-    # The bot needs to notice us before it will converse: it wants ~1.5s of being looked at, and the greeting it
-    # then sends goes to the LLM, which takes a while on a local model.
-    print('waiting up to %.0fs for the bot to notice us...' % args.greet_wait, end='', flush=True)
-    deadline = time.time() + args.greet_wait
-    while time.time() < deadline and not replies:
-        time.sleep(0.5)
-    print()
+    print('waiting up to %.0fs for the bot to notice us...' % args.greet_wait)
+    if session.wait_for_greeting(args.greet_wait):
+        for name, text, private in session.replies:
+            print('\n  [%s]%s %s' % (name, ' (private)' if private else '', text))
 
     for text in args.say:
         print('\n> %s' % text, flush=True)
-        before = len(replies)
-        conn.write(message(CHAT_MESSAGE_ID, s_str(text)))
-
-        deadline = time.time() + args.reply_wait
-        while time.time() < deadline:
-            if len(replies) > before:
-                # Give the bot a moment to finish streaming further sentences.
-                quiet_until = time.time() + 6.0
-                last = len(replies)
-                while time.time() < quiet_until:
-                    time.sleep(0.5)
-                    if len(replies) != last:
-                        last = len(replies)
-                        quiet_until = time.time() + 6.0
-                break
-            time.sleep(0.5)
+        reply = session.say(text, reply_timeout=args.reply_wait)
+        if reply:
+            print('  %s' % reply)
         else:
             print('  (no reply within %.0fs)' % args.reply_wait)
 
-    reader.running = False
-    try:
-        sock.close()
-    except OSError:
-        pass
+    session.close()
 
     print('\n--- %d bot message(s), %d of them private ---'
-          % (len(replies), sum(1 for r in replies if r[2])))
+          % (len(session.replies), sum(1 for r in session.replies if r[2])))
     print('--- %d echo(es) of our own messages, %d of them private ---'
-          % (len(echoes), sum(1 for e in echoes if e[1])))
-    if reader.error:
-        print('reader stopped with: %r' % reader.error)
-    return 0 if replies else 1
+          % (len(session.echoes), sum(1 for e in session.echoes if e[1])))
+    return 0 if session.replies else 1
 
 
 if __name__ == '__main__':

@@ -81,6 +81,34 @@ scripts/chatbot_test_client.py exercises all of this without needing the 3D clie
 front of a bot, says something and prints the replies, noting which arrived privately.
 
 
+Checking whether a model is good enough to teach with
+-----------------------------------------------------
+scripts/chatbot_eval.py runs a set of scripted questions against a bot and reports pass/fail, driving it through the
+real protocol so that what is measured is the answer a student would actually get - system prompt, tool definitions,
+streaming and all - rather than what the model says when asked directly.
+
+	cd scripts
+	python3 chatbot_eval.py --world myworld --username teacher --password PASS --bot-name Tutor \
+		--scenarios eval_scenarios/grade6_maths.json --label "qwen3.5:2b local"
+
+Exit status is 0 only if every case passed and every message stayed private, so it works as a build check.  Point it
+at the same bot with different models to compare them on the same questions.
+
+Two things to keep in mind when reading a result:
+
+* The checks are substring matches, so they are easy to fool.  Prefer checking that a good answer contains what it
+	must contain over checking that a bad one does not: an early version of the "stay on the subject" case looked for
+	story words and happily passed a bot that told the story using none of them.
+* Models are not deterministic, so two runs of the same scenarios against the same model will not always agree.
+	Treat a single run as a sample, not a measurement.
+
+Measured with qwen3.5:2b via Ollama, this file scores around 4-6 out of 10.  The failures are not refusals or
+timeouts but confident wrong answers: it has said 1/2 + 1/4 is "three-eighths, which you can also think of as
+five-sixths", and 3 - 7 is "four".  A tutor that states wrong arithmetic in a friendly, plausible voice is worse for
+a child than one that says nothing, so treat a model this size as a fixture for testing the plumbing, not as
+something to put in front of a student.
+
+
 Webserver public files dir
 --------------------------
 This directory holds files used by the website, such as CSS files, images, javascript files (map.js) etc.

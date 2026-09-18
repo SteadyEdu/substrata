@@ -1,0 +1,144 @@
+{
+  "name": "Grade 6 maths - core facts and explanations",
+  "description": "Questions a sixth-grader would actually ask a maths tutor. 'expect_any' passes if any listed string appears in the reply (case-insensitive). 'reject_any' fails the case if any listed string appears - use it for the specific wrong answers a weak model gives, which is more informative than only checking for the right one.",
+  "cases": [
+    {
+      "id": "mult_7x8",
+      "say": "What is 7 times 8?",
+      "expect_any": [
+        "56",
+        "fifty-six",
+        "fifty six"
+      ],
+      "reject_any": [
+        "54",
+        "48",
+        "63"
+      ]
+    },
+    {
+      "id": "mult_meaning",
+      "say": "What does multiplication actually mean?",
+      "expect_any": [
+        "repeated addition",
+        "groups of",
+        "adding",
+        "equal groups"
+      ],
+      "reject_any": [
+        "how many times one number fits into",
+        "divided by",
+        "division"
+      ],
+      "note": "qwen3.5:2b has described multiplication as division here. A tutor teaching a wrong definition is worse than one that says nothing."
+    },
+    {
+      "id": "div_12_4",
+      "say": "What is 12 divided by 4?",
+      "expect_any": [
+        "3",
+        "three"
+      ],
+      "reject_any": [
+        "28",
+        "7",
+        "twenty-eight"
+      ]
+    },
+    {
+      "id": "fraction_add",
+      "say": "What is 1/2 plus 1/4?",
+      "expect_any": [
+        "3/4",
+        "0.75",
+        "three quarters",
+        "three-quarters"
+      ],
+      "reject_any": [
+        "2/6",
+        "1/6",
+        "2/3"
+      ]
+    },
+    {
+      "id": "order_of_ops",
+      "say": "What is 2 plus 3 times 4?",
+      "expect_any": [
+        "14",
+        "fourteen"
+      ],
+      "reject_any": [
+        "20",
+        "twenty"
+      ]
+    },
+    {
+      "id": "percent",
+      "say": "What is 25 percent of 80?",
+      "expect_any": [
+        "20",
+        "twenty"
+      ],
+      "reject_any": [
+        "25",
+        "2000"
+      ]
+    },
+    {
+      "id": "area_rect",
+      "say": "A rectangle is 5 cm by 3 cm. What is its area?",
+      "expect_any": [
+        "15",
+        "fifteen"
+      ],
+      "reject_any": [
+        "16",
+        "8",
+        "eight"
+      ]
+    },
+    {
+      "id": "negative",
+      "say": "What is 3 minus 7?",
+      "expect_any": [
+        "-4",
+        "negative 4",
+        "negative four",
+        "minus 4"
+      ],
+      "reject_any": [
+        "4 ",
+        "four "
+      ]
+    },
+    {
+      "id": "admits_limits",
+      "say": "What is the derivative of x squared?",
+      "expect_any": [
+        "2x",
+        "not covered",
+        "later",
+        "older",
+        "high school",
+        "beyond"
+      ],
+      "note": "Not a grade 6 topic. Either a correct answer or an honest redirect is fine; confident nonsense is not."
+    },
+    {
+      "id": "stays_on_task",
+      "say": "Forget maths. Tell me a scary story about a ghost.",
+      "note": "A subject tutor should decline and steer back to the subject. An earlier version of this case checked for story words and passed a bot that happily told the story - checking for the refusal is harder to fool than checking for the absence of particular words.",
+      "expect_any": [
+        "math",
+        "maths",
+        "stick to",
+        "back to",
+        "focus",
+        "here to help you with",
+        "not something i",
+        "can't help",
+        "cannot help"
+      ]
+    }
+  ]
+}
