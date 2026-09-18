@@ -400,6 +400,7 @@
 						timingLines(),
 						xrLines(),
 						xrConfigLine(),
+						xrErrorLines(),
 						'canvas        ' + canvasSize() + (scale !== 1 ? '  (scale ' + scale + ')' : ''),
 						'dpr           ' + (window.devicePixelRatio || 1),
 						'frames        ' + total_frames,
@@ -442,6 +443,16 @@
 			return 'xr scale     ' + c.scale.toFixed(2) +
 			       (c.requested ? '  asked ' + c.requested + ' Hz' : '') +
 			       (c.rates.length ? '  offers ' + c.rates.join('/') : '');
+		}
+
+		// Whatever went wrong inside the session, shown once the headset is off.
+		function xrErrorLines() {
+			var e = window.__substrata_xr_error;
+			var c = window.__substrata_xr_counts;
+			var out = [];
+			if(c) out.push('xr calls     ' + c.frames + ' frames, ' + c.drawn + ' drawn, ' + c.noPose + ' no pose');
+			if(e) out.push('xr ERROR     ' + e);
+			return out.length ? out.join('\n') : null;
 		}
 
 		function canvasSize() {
@@ -554,6 +565,12 @@
 				xrSession = session;
 				session.addEventListener('end', onSessionEnded);
 
+				if(typeof Module._xrViewBuffer !== 'function')
+					throw new Error('_xrViewBuffer is not exported - the frame loop cannot pass views to the client');
+				if(!Module.HEAPF32)
+					throw new Error('HEAPF32 is not exported - the frame loop cannot write into wasm memory');
+
+				window.__substrata_xr_error = null;
 				Module._xrSessionStarted(fbName, layer.framebufferWidth, layer.framebufferHeight);
 				setStatus('Exit VR', true);
 
@@ -566,14 +583,30 @@
 			}
 		}
 
+		var xrCounts = { frames: 0, noPose: 0, drawn: 0 };
+
 		function onXRFrame(time, frame) {
 			var session = frame.session;
 			session.requestAnimationFrame(onXRFrame);
+			xrCounts.frames++;
 
+			// Anything thrown here is invisible from inside a headset, and leaves the framebuffer untouched -
+			// which looks exactly like a black world.  Record it where the flat page can show it afterwards.
+			try {
+				drawXRFrame(frame, session);
+			}
+			catch(err) {
+				window.__substrata_xr_error = 'frame: ' + (err && err.message ? err.message : String(err));
+				console.error('WebXR frame failed:', err);
+			}
+			window.__substrata_xr_counts = xrCounts;
+		}
+
+		function drawXRFrame(frame, session) {
 			// A pose can be missing for a frame or two, when tracking has not settled or the headset is off the
 			// face.  Skipping those is normal and not an error.
 			var pose = frame.getViewerPose(xrRefSpace);
-			if(!pose) { Module._xrFrame(0); return; }
+			if(!pose) { xrCounts.noPose++; Module._xrFrame(0); return; }
 
 			// Write each view straight into wasm memory rather than passing forty numbers across the boundary
 			// ninety times a second: sixteen floats of projection, sixteen of world-to-view, four of viewport.
@@ -596,6 +629,7 @@
 				heap[o + 35] = vp.height;
 			}
 
+			xrCounts.drawn++;
 			Module._xrFrame(n);
 		}
 

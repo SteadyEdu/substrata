@@ -188,6 +188,12 @@ static int xr_framebuffer_w = 0, xr_framebuffer_h = 0;
 static int xr_frames = 0;
 static int xr_last_num_views = 0;
 static Reference<FrameBuffer> xr_target_framebuffer;
+
+// Whether the client started in the cheap render profile.  A headset needs it, and the guess that picks it -
+// a device pixel ratio above 1 - is wrong on a Quest, which reports exactly 1.  Recorded so a session can say
+// so rather than rendering something unusable.
+static bool client_low_memory_mode = false;
+static int client_msaa_samples = 1;
 static bool xr_saved_render_to_offscreen = false;
 static bool xr_saved_draw_overlays = true;
 
@@ -252,6 +258,12 @@ EM_JS(void, publishFrameTimings, (double cpu_ms, double gl_ms, double client_fps
 
 // Publish WebXR session statistics where the flat page can show them.  A headset is not a place to read a
 // debug overlay, so the numbers have to survive the session and be readable afterwards.
+// A failure inside a session is invisible: the console is on a machine the wearer cannot see, and the headset
+// shows only the result.  So anything that goes wrong is recorded where the flat page can show it afterwards.
+EM_JS(void, publishXRError, (const char* msg), {
+	window.__substrata_xr_error = UTF8ToString(msg);
+});
+
 EM_JS(void, publishXRStats, (double fps, int frames, int views, int fb_w, int fb_h, int active), {
 	window.__substrata_xr = { fps: fps, frames: frames, views: views, fb_w: fb_w, fb_h: fb_h, active: !!active };
 });
@@ -453,6 +465,9 @@ int main(int argc, char** argv)
 		const bool low_memory_mode = false;
 #endif
 		conPrint("Using low memory mode: " + boolToString(low_memory_mode));
+#if EMSCRIPTEN
+		client_low_memory_mode = low_memory_mode;
+#endif
 
 
 #if EMSCRIPTEN
@@ -605,6 +620,9 @@ int main(int argc, char** argv)
 		settings.depth_fog = true;
 		settings.render_water_caustics = !low_memory_mode;
 		settings.msaa_samples = use_MSAA ? 4 : 1;
+#if EMSCRIPTEN
+		client_msaa_samples = settings.msaa_samples;
+#endif
 		settings.render_to_offscreen_renderbuffers = !low_memory_mode;
 		settings.ssao_support = false;
 		settings.ssao = false;
@@ -1514,6 +1532,13 @@ void xrSessionStarted(unsigned int framebuffer_name, int fb_width, int fb_height
 {
 	conPrint("xrSessionStarted: framebuffer name " + toString(framebuffer_name) + ", " + toString(fb_width) + " x " + toString(fb_height));
 
+	if(!client_low_memory_mode || (client_msaa_samples > 1))
+	{
+		const std::string msg = "started in the expensive render profile (MSAA " + toString(client_msaa_samples) +
+			"), which a headset may not be able to use - reload with ?gfx=low";
+		publishXRError(msg.c_str());
+	}
+
 	xr_framebuffer_name = framebuffer_name;
 	xr_framebuffer_w = fb_width;
 	xr_framebuffer_h = fb_height;
@@ -1568,6 +1593,9 @@ void xrFrame(int num_views)
 	{
 		const int use_num_views = myMin(num_views, XR_MAX_VIEWS);
 
+		try
+		{
+
 		// The session's reference space sits at the player's position in the world.  Where the head is within
 		// that space comes from the headset; where the space itself is comes from the ordinary camera
 		// controller, which is what movement will continue to drive.
@@ -1619,6 +1647,15 @@ void xrFrame(int num_views)
 				/*lens shift up=*/unit_shift_up * lens_sensor_dist, /*lens shift right=*/unit_shift_right * lens_sensor_dist);
 
 			opengl_engine->draw();
+			}
+		}
+		catch(glare::Exception& e)
+		{
+			publishXRError(("drawing a view threw: " + e.what()).c_str());
+		}
+		catch(std::exception& e)
+		{
+			publishXRError((std::string("drawing a view threw: ") + e.what()).c_str());
 		}
 	}
 
