@@ -186,6 +186,7 @@ static bool xr_session_active = false;
 static unsigned int xr_framebuffer_name = 0; // Emscripten GL name for the opaque framebuffer the session gives us.
 static int xr_framebuffer_w = 0, xr_framebuffer_h = 0;
 static int xr_frames = 0;
+static int xr_last_num_views = 0;
 static Timer* xr_timer = NULL;
 
 // gl3w.h is included below and rewrites these to function pointers it loads itself, which do not exist in an
@@ -1501,6 +1502,8 @@ void xrFrame(int num_views)
 		return;
 
 	xr_frames++;
+	if(num_views > 0)
+		xr_last_num_views = num_views;
 
 	// Bind the session's framebuffer and clear it to a slowly changing colour.  If this shows up in the headset
 	// then the session, the framebuffer handover and the frame loop are all working, which is the whole point of
@@ -1512,9 +1515,12 @@ void xrFrame(int num_views)
 	emscripten_glClearColor(0.5f + 0.5f * std::sin(t), 0.25f, 0.5f + 0.5f * std::cos(t), 1.f);
 	emscripten_glClear(GL_COLOR_BUFFER_BIT);
 
+	// Publish unconditionally.  An earlier version skipped this when no time had passed, to avoid dividing by
+	// zero, which meant the statistics silently did not appear at all if the timer had not ticked yet - and the
+	// timer's resolution here is about a millisecond.  A frame rate of zero is a worse answer than no answer,
+	// but no answer at all looks like the session is broken.
 	const double elapsed = xr_timer ? xr_timer->elapsed() : 0.0;
-	if(elapsed > 0)
-		publishXRStats(xr_frames / elapsed, xr_frames, num_views, xr_framebuffer_w, xr_framebuffer_h, /*active=*/1);
+	publishXRStats((elapsed > 0.001) ? (xr_frames / elapsed) : 0.0, xr_frames, num_views, xr_framebuffer_w, xr_framebuffer_h, /*active=*/1);
 }
 
 
@@ -1524,8 +1530,7 @@ void xrSessionEnded()
 	const double elapsed = xr_timer ? xr_timer->elapsed() : 0.0;
 	conPrint("xrSessionEnded: " + toString(xr_frames) + " frames in " + doubleToStringNDecimalPlaces(elapsed, 1) + " s");
 
-	if(elapsed > 0)
-		publishXRStats(xr_frames / elapsed, xr_frames, 0, xr_framebuffer_w, xr_framebuffer_h, /*active=*/0);
+	publishXRStats((elapsed > 0.001) ? (xr_frames / elapsed) : 0.0, xr_frames, xr_last_num_views, xr_framebuffer_w, xr_framebuffer_h, /*active=*/0);
 
 	xr_session_active = false;
 	xr_framebuffer_name = 0;

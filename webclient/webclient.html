@@ -398,11 +398,12 @@
 							((100 * hitches) / Math.max(1, total_frames)).toFixed(2) + '%)',
 						'paused        ' + gap_count + 'x, ' + (gap_total_ms / 1000).toFixed(1) + ' s',
 						timingLines(),
+						xrLines(),
 						'canvas        ' + canvasSize() + (scale !== 1 ? '  (scale ' + scale + ')' : ''),
 						'dpr           ' + (window.devicePixelRatio || 1),
 						'frames        ' + total_frames,
 						'elapsed       ' + elapsed_s.toFixed(0) + ' s'
-					].join('\n');
+					].filter(function(s){ return s; }).join('\n');
 				}
 				frames.length = 0;
 			}
@@ -419,6 +420,18 @@
 			return 'cpu           ' + t.cpu_ms.toFixed(2) + ' ms\n' +
 			       'gl draw       ' + t.gl_ms.toFixed(2) + ' ms\n' +
 			       'client fps    ' + t.client_fps.toFixed(1);
+		}
+
+		// Published by the client during a WebXR session.  A headset is no place to read an overlay, so the
+		// numbers are kept and shown on the flat page once the session ends.
+		function xrLines() {
+			var x = window.__substrata_xr;
+			if(!x) return null;
+			return 'xr ' + (x.active ? 'live      ' : 'last run  ') + x.fps.toFixed(1) + ' fps\n' +
+			       'xr frames     ' + x.frames + '\n' +
+			       'xr views      ' + x.views + '\n' +
+			       'xr buffer     ' + x.fb_w + 'x' + x.fb_h +
+			       (x.views > 1 ? '  (' + Math.round(x.fb_w / x.views) + 'x' + x.fb_h + ' an eye)' : '');
 		}
 
 		function canvasSize() {
