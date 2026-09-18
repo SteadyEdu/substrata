@@ -190,6 +190,40 @@ stay silent out loud.  Something like:
 	</shared_LLM_prompt_part>
 
 
+Testing the web client from a headset or another device on the network
+----------------------------------------------------------------------
+The web client needs SharedArrayBuffer for its thread pool, and SharedArrayBuffer needs a secure context.  localhost
+is a secure context by exception; a LAN IP is not.  So a headset or phone must load the client over https, not http,
+even on a private network.  Over http the page loads and then the client never starts.
+
+Point the device at
+
+	https://<the server machine's LAN IP>/webclient
+
+and take the browser's "advanced / proceed anyway" path past the certificate warning, which a self-signed
+certificate will always produce.
+
+Two things make this go wrong in ways that are hard to read:
+
+* The client picks its server from the page URL and uses TLS for any host that is not literally "localhost" - see
+	use_TLS in ClientThread.cpp - so it opens wss://<host>:443.  A browser will not prompt about a bad certificate
+	on a WebSocket; the connection just fails.  Accepting the certificate for the https page first covers the
+	WebSocket too, since it is the same host and port, but only in that order.  Load the page, accept, then it
+	connects.
+
+* Generate the development certificate with a subjectAltName covering the IP the device will use.  A certificate
+	with only a CN is rejected outright by anything Chromium-based, which includes the Quest browser:
+
+		openssl req -new -newkey rsa:4096 -x509 -sha256 -days 3650 -nodes \
+			-config san.cnf -out MyCertificate.crt -keyout MyKey.key
+
+	where san.cnf carries [alt] with DNS:localhost and an IP entry per address.  The server reads the keypair at
+	startup, so restart it afterwards.
+
+A DHCP lease change silently invalidates the certificate's IP entry.  If the device stops connecting after a
+reboot, check the machine's address before looking anywhere else.
+
+
 Webserver public files dir
 --------------------------
 This directory holds files used by the website, such as CSS files, images, javascript files (map.js) etc.
