@@ -112,11 +112,26 @@ WebXR
     72 Hz, about 656 Mpix/s, so on these numbers the client is around five times too slow.  scale 3 is close to
     the stereo pixel count and ran at 13 fps against the 72 needed, which agrees.
 
-    Do not treat that as the answer yet.  Every one of those numbers was measured at maximum quality, because the
-    client infers "mobile" from a device pixel ratio above 1 and a Quest browser reports exactly 1 - so the
-    headset was handed 4x MSAA, bloom, full shadow detail and offscreen render targets on a mobile GPU.  ?gfx=low
-    now selects the cheap profile explicitly.  Rerun scale 2 and 3 with it before deciding anything: that
-    measurement is what separates "needs an XR render profile" from "needs a different engine".
+    Those were measured at maximum quality: the client infers "mobile" from a device pixel ratio above 1 and a
+    Quest browser reports exactly 1, so the headset was handed 4x MSAA, bloom, full shadow detail and offscreen
+    render targets on a mobile GPU.  ?gfx=low selects the cheap profile explicitly.  Rerun with it:
+
+        scale 2   4.31 Mpix    ~38 fps     was 24
+        scale 3   9.69 Mpix    19-24 fps   was 13
+
+    So the cheap profile is worth about 1.6x, and the ceiling moves to roughly 208 Mpix/s against the 656 a
+    Quest 3 wants.  Around three times short rather than five.
+
+    Fitting frame time against pixel count separates the two costs, and this is the part that decides the
+    project.  At ?gfx=low the fit is about 3.75 ms per Mpix plus a fixed 10 ms per frame that does not depend on
+    resolution at all.  At 72 Hz the entire frame budget is 13.9 ms.  If that 10 ms is real then no amount of
+    resolution reduction, foveation or eye-buffer scaling reaches 72 Hz, because those only attack the per-pixel
+    term - the work would have to go into draw calls, culling and scene traversal instead, which is a much larger
+    project than an XR render profile.
+
+    That fit is two data points, so it is a hypothesis and not yet a finding: a line through two points is exact
+    by construction.  Before acting on it, get more scale points and read ?diag=1, which shows main loop CPU time
+    against updateGL time directly.  If CPU time sits near 10 ms whatever the resolution, it is confirmed.
 
 
 To offer upstream

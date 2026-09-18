@@ -350,9 +350,17 @@ int main(int argc, char** argv)
 			if(gfx_search.size() >= 1)
 			{
 				const std::map<std::string, std::string> gfx_queries = URL::parseQuery(gfx_search.substr(1));
-				const auto res = gfx_queries.find("gfx");
-				if(res != gfx_queries.end())
-					gfx_profile = res->second;
+
+				const auto gfx_res = gfx_queries.find("gfx");
+				if(gfx_res != gfx_queries.end())
+					gfx_profile = gfx_res->second;
+
+				// ?diag=1 opens the info window at startup.  The native client has F1 for this; a headset has no
+				// keyboard, and the two lines it shows - main loop CPU time against updateGL time - are the ones
+				// that say whether a frame is limited by pixels or by work that no resolution change will avoid.
+				const auto diag_res = gfx_queries.find("diag");
+				if((diag_res != gfx_queries.end()) && (diag_res->second == "1"))
+					show_imgui_info_window = true;
 			}
 		}
 		conPrint("Graphics profile from URL: '" + gfx_profile + "'");
