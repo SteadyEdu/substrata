@@ -127,6 +127,12 @@ public:
 	// Thread-safe, can be called from any thread.
 	void enqueuePacketToBroadcastForAllWorlds(const SocketBufferOutStream& packet_buffer);
 
+	// Enqueues packet to just the WorkerThread for the client that owns the given avatar, in the given world.
+	// Used for private chat, so a message reaches one user and is not broadcast to everyone else in the world.
+	// Does nothing if that client is not connected (e.g. they left mid-conversation).
+	// Thread-safe, can be called from any thread.
+	void enqueuePacketToClientWithAvatarUID(const SocketBufferOutStream& packet_buffer, ServerWorldState* world, UID avatar_uid);
+
 
 	Reference<ServerAllWorldsState> world_state;
 

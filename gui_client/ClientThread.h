@@ -35,9 +35,10 @@ struct ZSTD_DCtx_s;
 class ChatMessage : public ThreadMessage
 {
 public:
-	ChatMessage(const std::string& name_, const std::string& msg_, UID sender_avatar_uid_) : ThreadMessage(Msg_ChatMessage), name(name_), msg(msg_), sender_avatar_uid(sender_avatar_uid_) {}
+	ChatMessage(const std::string& name_, const std::string& msg_, UID sender_avatar_uid_, bool is_private_) : ThreadMessage(Msg_ChatMessage), name(name_), msg(msg_), sender_avatar_uid(sender_avatar_uid_), is_private(is_private_) {}
 	std::string name, msg;
 	UID sender_avatar_uid;
+	bool is_private; // Part of a private conversation with a chatbot: only this client received it.
 };
 
 

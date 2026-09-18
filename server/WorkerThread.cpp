@@ -64,6 +64,7 @@ WorkerThread::WorkerThread(const Reference<SocketInterface>& socket_, Server* se
 	scratch_packet(SocketBufferOutStream::DontUseNetworkByteOrder),
 	fuzzing(false),
 	write_trace(false),
+	client_avatar_uid_atomic((glare::atomic_int)UID::invalidUID().value()),
 	is_websocket_connection(is_websocket_connection_)
 {
 	//if(VERBOSE) print("event_fd.efd: " + toString(event_fd.efd));
@@ -1230,6 +1231,7 @@ void WorkerThread::doRun()
 
 			// Write avatar UID assigned to the connected client.
 			client_avatar_uid = world_state->getNextAvatarUID();
+			setClientAvatarUID(client_avatar_uid); // Publish it so other threads can route private packets to this client.
 			writeToStream(client_avatar_uid, *socket);
 
 			// If the client connected via a websocket, they can be logged in with a session cookie.
@@ -2753,31 +2755,12 @@ void WorkerThread::doRun()
 							}
 							else
 							{
-								// Enqueue chat messages to worker threads to send
-								// Send ChatMessageID packet
-								MessageUtils::initPacket(scratch_packet, Protocol::ChatMessageID);
-								scratch_packet.writeStringLengthFirst(client_user_name);
-								scratch_packet.writeStringLengthFirst(msg);
-								writeToStream(client_avatar_uid, scratch_packet);
-								MessageUtils::updatePacketLengthField(scratch_packet);
+								// If the user is in a private conversation with a chatbot, their message is part of that conversation and must
+								// not go out to world chat.  Work out which case we are in before sending anything.
+								bool msg_is_private = false;
 
-								enqueuePacketToBroadcast(scratch_packet);
-
-
-								
 								{
 									WorldStateLock lock(world_state->mutex);
-
-									// Execute any onChatMessage event handlers.
-									const ServerWorldState::ObjectMapType& objects = cur_world_state->getObjects(lock);
-									for(auto it = objects.begin(); it != objects.end(); ++it) // TEMP: slow linear scan
-									{
-										WorldObject* ob = it->second.ptr();
-										if(ob->event_handlers && ob->event_handlers->onChatMessage_handlers.nonEmpty())
-										{
-											ob->event_handlers->executeOnChatMessageHandlers(client_avatar_uid, msg, lock);
-										}
-									}
 
 									//-------- Pass chat message to any nearby chatbots --------
 
@@ -2795,17 +2778,65 @@ void WorkerThread::doRun()
 
 									const double MAX_CHAT_HEAR_DIST = 6;
 
+									// First work out whether this message belongs to a private conversation that is already under way.  Note that a
+									// bot only claims a user once the attention timer has fired (see ChatBot::think), so a message typed in the first
+									// moment after walking up to a bot still goes to world chat.  Closing that window needs an explicit 'talk
+									// privately' affordance in the client rather than a wider rule here, which would swallow ordinary nearby chat.
+									for(auto& it : cur_world_state->getChatBots(lock))
+									{
+										ChatBot* bot = it.second.ptr();
+										if((bot->pos.getDist2(sender_position) < Maths::square(MAX_CHAT_HEAR_DIST)) && bot->capturesChatFrom(client_avatar_uid))
+										{
+											msg_is_private = true;
+											break;
+										}
+									}
+
 									for(auto& it : cur_world_state->getChatBots(lock))
 									{
 										ChatBot* bot = it.second.ptr();
 										if(bot->pos.getDist2(sender_position) < Maths::square(MAX_CHAT_HEAR_DIST))
 										{
+											// Don't let a bot that speaks to the whole world overhear, and then answer aloud, a message the user was
+											// told is private.
+											if(msg_is_private && !bot->isPrivateConversationBot())
+												continue;
+
 											ChatBot::EventHandlerResults res = bot->processHeardChatMessage(msg, sender_avatar, client_user_name, server, client_capabilities, lock);
 											if(res.new_llm_thread)
 												server->llm_thread_manager.addThread(res.new_llm_thread);
 										}
 									}
+
+									// Execute any onChatMessage event handlers.
+									// Private messages are deliberately not passed to scripts: a script is world-visible content that any
+									// parcel owner can write, so feeding it a private conversation would defeat the point of making it private.
+									if(!msg_is_private)
+									{
+										const ServerWorldState::ObjectMapType& objects = cur_world_state->getObjects(lock);
+										for(auto it = objects.begin(); it != objects.end(); ++it) // TEMP: slow linear scan
+										{
+											WorldObject* ob = it->second.ptr();
+											if(ob->event_handlers && ob->event_handlers->onChatMessage_handlers.nonEmpty())
+											{
+												ob->event_handlers->executeOnChatMessageHandlers(client_avatar_uid, msg, lock);
+											}
+										}
+									}
 								} // End lock scope
+
+								// Send ChatMessageID packet
+								MessageUtils::initPacket(scratch_packet, Protocol::ChatMessageID);
+								scratch_packet.writeStringLengthFirst(client_user_name);
+								scratch_packet.writeStringLengthFirst(msg);
+								writeToStream(client_avatar_uid, scratch_packet);
+								scratch_packet.writeUInt32(msg_is_private ? Protocol::CHAT_MESSAGE_FLAG_PRIVATE : 0); // Older clients ignore these trailing bytes.
+								MessageUtils::updatePacketLengthField(scratch_packet);
+
+								if(msg_is_private)
+									enqueueDataToSend(scratch_packet); // Echo back to the sender only, so they see their own side of the conversation.
+								else
+									enqueuePacketToBroadcast(scratch_packet);
 							}
 							break;
 						}

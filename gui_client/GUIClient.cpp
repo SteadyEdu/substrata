@@ -9663,15 +9663,20 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 					}
 				}
 
+				// A private message is part of a one-to-one conversation with a chatbot: nobody else in the world received
+				// it.  Mark it so the user can tell at a glance what is and is not visible to the rest of the world.
+				const std::string private_prefix = m->is_private ? "[private] " : "";
+
 				ui_interface->appendChatMessage(
-					"<p><span style=\"color:rgb(" + toString(col.r * 255) + ", " + toString(col.g * 255) + ", " + toString(col.b * 255) + ")\">" + web::Escaping::HTMLEscape(use_avatar_name) + "</span>: " +
+					"<p><i>" + web::Escaping::HTMLEscape(private_prefix) + "</i><span style=\"color:rgb(" + toString(col.r * 255) + ", " + toString(col.g * 255) + ", " + toString(col.b * 255) + ")\">" + web::Escaping::HTMLEscape(use_avatar_name) + "</span>: " +
 					web::Escaping::HTMLEscape(m->msg) + "</p>");
 
-				chat_ui.appendMessage(use_avatar_name, col, ": " + m->msg);
+				chat_ui.appendMessage(private_prefix + use_avatar_name, col, ": " + m->msg);
 
 
 				// Execute any onChatMessage event handlers.
-				if(m->sender_avatar_uid.valid())
+				// Private messages are not passed to scripts - see the matching check on the server in WorkerThread.cpp.
+				if(m->sender_avatar_uid.valid() && !m->is_private)
 				{
 					WorldStateLock lock(world_state->mutex);
 					

@@ -1161,7 +1161,11 @@ void ClientThread::readAndHandleMessage(const uint32 peer_protocol_version)
 			if(!msg_buffer.endOfStream())
 				sender_avatar_uid = readUIDFromStream(msg_buffer);
 
-			out_msg_queue->enqueue(new ChatMessage(name, msg, sender_avatar_uid));
+			uint32 flags = 0;
+			if(!msg_buffer.endOfStream()) // Servers predating private chat don't send the flags field.
+				flags = msg_buffer.readUInt32();
+
+			out_msg_queue->enqueue(new ChatMessage(name, msg, sender_avatar_uid, BitUtils::isBitSet(flags, Protocol::CHAT_MESSAGE_FLAG_PRIVATE)));
 			break;
 		}
 	case Protocol::BuilderAITextDelta:
@@ -1453,7 +1457,7 @@ void ClientThread::doRun()
 		if(peer_protocol_version >= 42)
 		{
 			// Send client capabilities
-			const uint32 client_capabilities = Protocol::STREAMING_COMPRESSED_OBJECT_SUPPORT | Protocol::SENDS_USER_MOVED_CHATBOT_MSGS;
+			const uint32 client_capabilities = Protocol::STREAMING_COMPRESSED_OBJECT_SUPPORT | Protocol::SENDS_USER_MOVED_CHATBOT_MSGS | Protocol::PRIVATE_CHAT_SUPPORT;
 			socket->writeUInt32(client_capabilities);
 		}
 

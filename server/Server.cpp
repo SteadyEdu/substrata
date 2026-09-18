@@ -1459,6 +1459,28 @@ void Server::enqueuePacketToBroadcastForWorld(const SocketBufferOutStream& packe
 	}
 }
 
+
+// Enqueues packet to just the client that owns the given avatar.
+void Server::enqueuePacketToClientWithAvatarUID(const SocketBufferOutStream& packet_buffer, ServerWorldState* world, UID avatar_uid)
+{
+	if(!avatar_uid.valid())
+		return;
+
+	Lock lock(worker_thread_manager.getMutex());
+	for(auto i = worker_thread_manager.getThreads().begin(); i != worker_thread_manager.getThreads().end(); ++i)
+	{
+		assert(dynamic_cast<WorkerThread*>(i->ptr()));
+		WorkerThread* worker_thread = static_cast<WorkerThread*>(i->ptr());
+
+		if((worker_thread->cur_world_state.ptr() == world) && (worker_thread->getClientAvatarUID() == avatar_uid))
+		{
+			worker_thread->enqueueDataToSend(packet_buffer);
+			return; // Avatar UIDs are unique per connection, so there is at most one matching thread.
+		}
+	}
+}
+
+
 // Enqueues packet to all WorkerThreads.
 void Server::enqueuePacketToBroadcastForAllWorlds(const SocketBufferOutStream& packet_buffer)
 {

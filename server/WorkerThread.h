@@ -16,6 +16,7 @@ Copyright Glare Technologies Limited 2018 -
 #include <SocketBufferOutStream.h>
 #include <Vector.h>
 #include "../shared/UserID.h"
+#include "../shared/UID.h"
 #include <BufferInStream.h>
 #include <AtomicInt.h>
 #include <string>
@@ -45,6 +46,12 @@ public:
 
 	void enqueueDataToSend(const SocketBufferOutStream& packet); // threadsafe
 	void enqueueDataToSend(const ArrayRef<uint8> data); // threadsafe
+
+	// UID of the avatar assigned to this connection's client, or an invalid UID before one has been assigned.
+	// Stored atomically so other threads (see Server::enqueuePacketToClientWithAvatarUID) can route packets to
+	// a single client without taking this thread's locks.
+	UID getClientAvatarUID() const { return UID((uint64)client_avatar_uid_atomic.getVal()); } // threadsafe
+	void setClientAvatarUID(UID uid) { client_avatar_uid_atomic = (glare::atomic_int)uid.value(); } // threadsafe
 
 	web::RequestInfo websocket_request_info; // If the client connected via a websocket, this the HTTP request data.  Is used for accessing the login cookie.
 
@@ -78,6 +85,8 @@ private:
 	bool write_trace; // Should we write a record of network traffic to disk for fuzz seeding?
 
 	glare::AtomicInt should_quit;
+
+	glare::AtomicInt client_avatar_uid_atomic; // See getClientAvatarUID().  Initialised to UID::invalidUID().
 
 	bool is_websocket_connection;
 

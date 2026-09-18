@@ -20,6 +20,7 @@ Copyright Glare Technologies Limited 2026 -
 #include <Exception.h>
 #include <Lock.h>
 #include <StringUtils.h>
+#include <BitUtils.h>
 #include <PlatformUtils.h>
 #include <Parser.h>
 #include <MemMappedFile.h>
@@ -93,6 +94,12 @@ void renderEditChatBotPage(ServerAllWorldsState& world_state, const web::Request
 						page += "<label for=\"base_prompt\">Custom prompt part:</label><br/>";
 						page += "<textarea rows=\"20\" class=\"full-width\" id=\"base_prompt\" name=\"base_prompt\">" + web::Escaping::HTMLEscape(chatbot->custom_prompt_part) + "</textarea>";
 						page += "<div class=\"field-description\">Max 10,000 characters</div>";
+						page += "</div>";
+
+						page += "<div class=\"form-field\">";
+						page += std::string("Private conversations: <input type=\"checkbox\" name=\"private_conversation\" value=\"checked\" ") + (chatbot->isPrivateConversationBot() ? "checked" : "") + ">";
+						page += "<div class=\"field-description\">If ticked, this bot talks to one person at a time, and what each of them says to it is not shown in world chat.  "
+							"Use this for tutoring, where a student should be able to ask a question without the rest of the room seeing it.</div>";
 						page += "</div>";
 
 						page += "<input type=\"submit\" value=\"Save Changes\">";
@@ -391,6 +398,8 @@ void handleEditChatBotPost(ServerAllWorldsState& world_state, const web::Request
 
 		const double new_heading = request.getPostDoubleField("heading");
 
+		const bool new_private_conversation = request.getPostField("private_conversation") == "checked";
+
 		{ // Lock scope
 
 			WorldStateLock lock(world_state.mutex);
@@ -432,6 +441,8 @@ void handleEditChatBotPost(ServerAllWorldsState& world_state, const web::Request
 
 							chatbot->pos = new_pos;
 							chatbot->heading = (float)new_heading;
+
+							BitUtils::setOrZeroBit(chatbot->flags, ChatBot::PRIVATE_CONVERSATION_FLAG, new_private_conversation);
 
 
 							// Update the avatar's state

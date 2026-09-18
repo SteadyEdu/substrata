@@ -136,6 +136,9 @@ ChatBot::EventHandlerResults ChatBot::userMovedAwayFromBotAvatar(AvatarRef other
 		//conPrint("Setting conversing=false and pausing attention_timer.");
 		info.conversing = false; // Consider us not conversing with the avatar that moved away.
 		info.attention_timer.pause();
+
+		if(private_partner_avatar_uid == other_avatar->uid)
+			private_partner_avatar_uid = UID::invalidUID(); // Free the bot up for the next user.
 	}
 
 	return res;
@@ -369,20 +372,50 @@ void ChatBot::handleLLMToolFunctionCall(const std::vector<Reference<ToolFunction
 }
 
 
-void ChatBot::sendChatMessageToClients(const string_view message, Server* server, WorldStateLock& world_lock)
+bool ChatBot::capturesChatFrom(UID sender_avatar_uid) const
+{
+	return isPrivateConversationBot() && private_partner_avatar_uid.valid() && (private_partner_avatar_uid == sender_avatar_uid);
+}
+
+
+void ChatBot::sendChatMessagePacket(const string_view message, UID target_avatar_uid, Server* server, WorldStateLock& world_lock)
 {
 	if(message.empty())
 		return;
+
+	const bool is_private = target_avatar_uid.valid();
 
 	// Send message as a chat message
 	MessageUtils::initPacket(scratch_packet, Protocol::ChatMessageID);
 	scratch_packet.writeStringLengthFirst(name); // Write sender name
 	scratch_packet.writeStringLengthFirst(message); // Write message 
 	::writeToStream(avatar_uid, scratch_packet); // Write sender avatar UID (= the avatar of this chatbot)
+	scratch_packet.writeUInt32(is_private ? Protocol::CHAT_MESSAGE_FLAG_PRIVATE : 0); // Write flags.  Older clients ignore these trailing bytes.
 	
 	MessageUtils::updatePacketLengthField(scratch_packet);
 
-	server->enqueuePacketToBroadcastForWorld(scratch_packet, world);
+	if(is_private)
+		server->enqueuePacketToClientWithAvatarUID(scratch_packet, world, target_avatar_uid);
+	else
+		server->enqueuePacketToBroadcastForWorld(scratch_packet, world);
+}
+
+
+void ChatBot::sendChatMessageToClients(const string_view message, Server* server, WorldStateLock& world_lock)
+{
+	if(message.empty())
+		return;
+
+	if(isPrivateConversationBot())
+	{
+		// A private-conversation bot speaks only to the user it is currently with.  If it has no partner - e.g. they
+		// disconnected while the LLM was still responding - drop the reply rather than leak it to the whole world.
+		if(private_partner_avatar_uid.valid())
+			sendChatMessagePacket(message, private_partner_avatar_uid, server, world_lock);
+		return;
+	}
+
+	sendChatMessagePacket(message, UID::invalidUID(), server, world_lock);
 
 
 
@@ -474,6 +507,9 @@ ChatBot::ThinkResults ChatBot::think(Server* server, WorldStateLock& world_lock)
 			if(this->look_target_avatar == other_avatar)
 				this->look_target_avatar = nullptr;
 
+			if(private_partner_avatar_uid == other_avatar->uid)
+				private_partner_avatar_uid = UID::invalidUID(); // Partner disconnected - free the bot up for the next user.
+
 			// Remove avatar from avatar map
 			auto old_avatar_iterator = it;
 			it++;
@@ -505,6 +541,22 @@ ChatBot::ThinkResults ChatBot::think(Server* server, WorldStateLock& world_lock)
 				// Start conversing with the other avatar.
 
 				const bool greeted_other_av_recently = other_av_info.time_since_last_greeted_other_av.isRunning() && (other_av_info.time_since_last_greeted_other_av.elapsed() < GREETING_COOLDOWN_PERIOD);
+
+				// A private-conversation bot talks to one user at a time: its conversation history and its replies belong to
+				// that user alone, so a second user must not be able to join part-way through.  Let the newcomer know we are
+				// busy (privately, and no more often than the greeting cooldown allows) and leave them not-conversing.
+				if(isPrivateConversationBot() && private_partner_avatar_uid.valid() && (private_partner_avatar_uid != other_avatar->uid))
+				{
+					if(!greeted_other_av_recently)
+					{
+						sendChatMessagePacket("I'm with someone else at the moment - I'll be free shortly.", other_avatar->uid, server, world_lock);
+						other_av_info.time_since_last_greeted_other_av.resetAndUnpause();
+					}
+
+					it++;
+					continue;
+				}
+
 				conPrint("----User paid attention to chatbot for 1.5 seconds.  (greeted_other_av_recently=" + boolToString(greeted_other_av_recently) + ")----");
 
 				// Append a 'XX is standing near by' message to conversation, which should trigger a "hello" response from the LLM.  Only do this if we haven't done so recently, to avoid spamming chat. 
@@ -531,6 +583,9 @@ ChatBot::ThinkResults ChatBot::think(Server* server, WorldStateLock& world_lock)
 				this->look_target_avatar = other_avatar;
 
 				other_av_info.conversing = true;
+
+				if(isPrivateConversationBot())
+					private_partner_avatar_uid = other_avatar->uid; // Claim the bot for this user until they leave.
 			}
 
 			it++;

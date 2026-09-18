@@ -108,6 +108,8 @@ const uint32 PickUpGearItem			= 1404; // A client wants to pick up an ObjectType
 const uint32 DropGearItem			= 1405; // A client wants to drop a gear item from their inventory into the world.
 const uint32 CloneGearItemInInventory	= 1406; // A client wants to clone a gear item that is in the user's inventory.
 
+// Payload: sender name (string), message (string), sender avatar UID, and optionally a trailing uint32 of
+// CHAT_MESSAGE_FLAG_* bits.  Clients predating the flags field just ignore the trailing bytes.
 const uint32 ChatMessageID			= 2000;
 
 const uint32 ObjectCreated			= 3000;
@@ -246,6 +248,12 @@ const uint32 BuilderAIError			= 15013; // Something went wrong; the message is s
 // Client capabilities
 const uint32 STREAMING_COMPRESSED_OBJECT_SUPPORT	= 0x1; // Can the client handle ObjectInitialSendCompressed messages?
 const uint32 SENDS_USER_MOVED_CHATBOT_MSGS			= 0x2;//  Does the client send UserMovedNearToAvatar and userMovedAwayFromBotAvatar msgs?
+const uint32 PRIVATE_CHAT_SUPPORT					= 0x4; // Can the client handle the flags field on ChatMessageID, and render private messages distinctly?
+
+// ChatMessageID flags
+// A private message is part of a conversation between one user and one chatbot: the server sends it to that one
+// client only, and it is never broadcast to the world.
+const uint32 CHAT_MESSAGE_FLAG_PRIVATE				= 0x1;
 
 // Server capabilities
 const uint32 OBJECT_TEXTURE_BASISU_SUPPORT			= 0x1;

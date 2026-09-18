@@ -107,7 +107,18 @@ public:
 
 	AvatarSettings avatar_settings;
 
+	// Bits in 'flags'.
+	// PRIVATE_CONVERSATION_FLAG: the bot converses with one user at a time, and its replies are sent only to that
+	// user rather than broadcast to the whole world.
+	static const uint32 PRIVATE_CONVERSATION_FLAG = 1;
+
 	uint32 flags;
+
+	bool isPrivateConversationBot() const { return (flags & PRIVATE_CONVERSATION_FLAG) != 0; }
+
+	// Should a chat message from the given avatar be kept out of world chat, because it is part of this bot's
+	// private conversation?  Called by WorkerThread before it decides how to deliver the user's own message.
+	bool capturesChatFrom(UID sender_avatar_uid) const;
 
 	Vec3d pos;
 	float heading;
@@ -138,8 +149,17 @@ public:
 	std::map<Reference<Avatar>, OtherAvatarInfo> other_avatar_info;
 	Reference<const Avatar> look_target_avatar; // Avatar we should look at, may be null if not chatting with anyone.
 
+	// When PRIVATE_CONVERSATION_FLAG is set, the avatar this bot is currently in a private conversation with,
+	// or an invalid UID if it is free.  Runtime-only state; not serialised.
+	UID private_partner_avatar_uid;
+
 private:
 	void sendChatMessageToClients(const string_view message, Server* server, WorldStateLock& world_lock); // Send message to clients if non-empty
+
+	// The single point through which every chatbot utterance leaves the server, and so the place to hook
+	// transcript logging.  If target_avatar_uid is valid, the message is sent only to that avatar's client and is
+	// marked private; otherwise it is broadcast to the whole world as before.
+	void sendChatMessagePacket(const string_view message, UID target_avatar_uid, Server* server, WorldStateLock& world_lock);
 	Reference<LLMThread> createLLMThread(Server* server);
 
 	// The response from the LLM is streamed back from the cloud server, however we only want to chat in complete sentences, not in fragments of sentences.  So we will scan the accumulated response for sentence ends.
