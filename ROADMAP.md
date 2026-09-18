@@ -140,6 +140,58 @@ WebXR
     That is an inference the 2D panel cannot test, because the thing in question is the panel.  Measuring further
     through it has stopped paying.  The next step that reduces uncertainty is a minimal WebXR session.
 
+    Scope of the WebXR session work
+    -------------------------------
+    Two things that looked like engine work turn out not to be.
+
+    FrameBuffer already has an explicit FrameBuffer(GLuint) constructor that does not take ownership, and
+    setTargetFrameBuffer() already redirects the main passes at it.  Rendering into the framebuffer WebXR hands
+    over needs no new engine code, only a way to get its handle across from JS.
+
+    And the camera model is a sensor-and-lens one that already carries lens_shift_up_distance and
+    lens_shift_right_distance, which is exactly the asymmetry a per-eye projection needs.  calcCamFrustumVerts()
+    already accounts for the shift, so culling follows.  A per-eye projection can be expressed by converting
+    WebXR's numbers into that model rather than by adding a frustum entry point to the engine.
+
+    With the viewport offset and the per-frame clear already done, glare-core may need no further changes at all.
+    What is left is the client and a JS shim.
+
+    Phase 1, session lifecycle.  An Enter VR button, since a session can only start from a user gesture;
+    navigator.xr.isSessionSupported and requestSession('immersive-vr'); a reference space; and swapping the main
+    loop over - emscripten_cancel_main_loop() and then let XRSession.requestAnimationFrame call an exported
+    function, rather than emscripten_set_main_loop.  Also stop calling SDL_GL_SwapWindow while in session, since
+    the headset compositor presents instead.  Deliverable: a session that starts, runs frames and exits cleanly,
+    rendering nothing.  Do this first because the hardest risks are here, not in the rendering.
+
+    Phase 2, render both eyes.  Per XR frame: get the viewer pose, loop over its views, and for each one set the
+    viewport rect from XRWebGLLayer.getViewport(), the view index, and the camera transform converted from the
+    view's projection and transform.  The pieces this needs already exist.  Deliverable: correct stereo with head
+    tracking, which is also the point at which the per-frame cost can finally be measured for real rather than
+    inferred from a 2D panel.
+
+    Phase 3, pose and locomotion.  WebXR is y-up and metres; the world is z-up.  One fixed rotation between them,
+    applied to the viewer pose, and the camera controller's position becomes the origin offset of the reference
+    space.  Then thumbstick movement from XRInputSource gamepads, because a headset has no keyboard.
+
+    Phase 4, the interface.  gl_ui draws in screen space, which in a headset is wrong rather than merely ugly.
+    Disable it in session for phases 1 to 3 and give it a world-space quad afterwards.  The tutor is text, so
+    this is what decides whether the thing is usable by a student, and it is the phase most likely to be
+    underestimated.
+
+    Risks, worst first:
+
+    * Emscripten addresses GL objects by integer name through its own table, and XRWebGLLayer hands out a
+        JavaScript WebGLFramebuffer.  Registering that object in Emscripten's table so C++ can bind it by name is
+        the one piece with no precedent in this codebase.  If it does not work nothing else in phase 2 matters,
+        which is the argument for proving it early.
+    * The WebGL context is created by SDL, and a session needs an XR-compatible one.  makeXRCompatible() can
+        migrate the context to a different adapter and lose it, so context loss has to be survivable.
+    * The XR framebuffer is opaque: it cannot be read back or have attachments changed.  The engine only binds it
+        and draws, so this should hold, but the offscreen render path must stay off - which it already is,
+        because stereo forces the cheap profile.
+    * None of this can be tested on the development machine.  Every iteration needs the headset, which makes the
+        loop slow and argues for small, verifiable steps rather than a large change tested at the end.
+
     Still to do for a real XR path: per-eye projection matrices from the headset rather than one shared camera
     (setFrustumCameraTransform), rendering into the framebuffer WebXR hands over, driving the loop from
     XRSession.requestAnimationFrame instead of emscripten_set_main_loop, the y-up to z-up conversion, and a
