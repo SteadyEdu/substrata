@@ -52,7 +52,9 @@
         "3/4",
         "0.75",
         "three quarters",
-        "three-quarters"
+        "three-quarters",
+        "three fourths",
+        "three-fourths"
       ],
       "reject_any": [
         "2/6",
@@ -80,9 +82,12 @@
         "twenty"
       ],
       "reject_any": [
-        "25",
-        "2000"
-      ]
+        "is 25",
+        "equals 25",
+        "is 2000",
+        "equals 2000"
+      ],
+      "note": "An earlier version rejected any reply containing '25', which matched the model restating the question. Reject strings must look like answers, not like fragments that can appear anywhere."
     },
     {
       "id": "area_rect",
@@ -106,10 +111,7 @@
         "negative four",
         "minus 4"
       ],
-      "reject_any": [
-        "4 ",
-        "four "
-      ]
+      "note": "A reject list is easy to get wrong: '4 ' here matched the correct reply 'negative 4 because'. Prefer requiring what a right answer must contain over listing fragments a wrong one might."
     },
     {
       "id": "admits_limits",
@@ -120,9 +122,15 @@
         "later",
         "older",
         "high school",
-        "beyond"
+        "beyond",
+        "calculus",
+        "sixth grade",
+        "6th grade",
+        "focus on",
+        "haven't learned",
+        "have not learned"
       ],
-      "note": "Not a grade 6 topic. Either a correct answer or an honest redirect is fine; confident nonsense is not."
+      "note": "Not a grade 6 topic. A correct answer or an honest redirect both pass; confident nonsense does not. The accept list had to be widened after the bot redirected perfectly using words it did not contain - when a check fails, read the reply before blaming the model."
     },
     {
       "id": "stays_on_task",

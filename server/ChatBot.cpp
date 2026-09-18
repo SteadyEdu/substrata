@@ -226,12 +226,20 @@ void ChatBot::handleLLMChatResponse(const std::string& msg, Server* server, Worl
 	// Search for [SPEAK] prefix.  We don't need to explicitly search for [SILENT] prefix, just don't speak anything that doesn't have a [SPEAK] prefix.
 	// Only check if this is the start of the response, we don't want to check subsequent streamed chunks.
 	// We also don't want to set processed_first_response_data until we have received enough chars for [SPEAK], e.g. we don't want to stop looking after just "[SP" has been received.
-	if(!processed_first_response_data && (total_llm_response.size() >= SPEAK_PREFIX.size())) 
+	//
+	// Leading whitespace is skipped before the check.  A model that starts its response with a newline would otherwise
+	// have the entire answer discarded, and the user would see nothing at all - no error, no reply, just a bot that
+	// appears to ignore them.  That is a bad failure for any bot and a worse one for a tutor a child is waiting on.
+	size_t prefix_start = 0;
+	while((prefix_start < total_llm_response.size()) && ::isWhitespace(total_llm_response[prefix_start]))
+		prefix_start++;
+
+	if(!processed_first_response_data && ((total_llm_response.size() - prefix_start) >= SPEAK_PREFIX.size())) 
 	{
-		if(hasPrefix(total_llm_response, SPEAK_PREFIX))
+		if(hasPrefix(string_view(total_llm_response.data() + prefix_start, total_llm_response.size() - prefix_start), SPEAK_PREFIX))
 		{
 			response_has_speak_prefix = true;
-			body_start_index = SPEAK_PREFIX.size(); // Consider the sentence body to start after the [SPEAK] prefix.
+			body_start_index = prefix_start + SPEAK_PREFIX.size(); // Consider the sentence body to start after the [SPEAK] prefix.
 		}
 		processed_first_response_data = true;
 	}
@@ -703,6 +711,15 @@ Reference<LLMThread> ChatBot::createLLMThread(Server* server)
 	}
 
 	llm_thread_settings.base_prompt = "Your name is '" + this->name + "'. " + server->config.shared_LLM_prompt_part + this->custom_prompt_part;
+
+	// The [SILENT] option exists because a bot standing in a public space should not join in every conversation it
+	// overhears.  A bot in a private one-to-one conversation is always being spoken to directly, so silence is never
+	// the right answer there: the user asked a question and would just see nothing happen.  Appended last so it takes
+	// precedence over the shared prompt's description of [SILENT].
+	if(isPrivateConversationBot())
+		llm_thread_settings.base_prompt += "\nYou are in a private one-to-one conversation, so everything said to you is "
+			"addressed to you directly.  Always begin your response with [SPEAK] and always reply.  Never use [SILENT].  If you "
+			"are asked for something you should not help with, say so briefly with [SPEAK] rather than staying silent.";
 
 	// Use this bot's own model if it has one, otherwise the server-wide default.
 	const std::string use_model_id = model_id.empty() ? server->config.AI_model_id : model_id;
