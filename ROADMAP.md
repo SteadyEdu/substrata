@@ -98,8 +98,17 @@ Text to speech, and speech to text
     text tutor to work at all.
 
 WebXR
-    The original goal.  There is no VR or XR code anywhere in Substrata today; see the notes from the initial
-    assessment.  The web client is the right target, and the engine work - per-eye projection, rendering into the
+    The original goal.  Started: glare-core can now draw into a sub-rectangle of the render target, which is what
+    lets two eyes share one framebuffer - setViewportRect(), and scissored clears so the second eye does not wipe
+    the first.  ?stereo=1 in the web client draws the scene twice side by side and is what proved it: tracing the
+    GL context shows two viewport rectangles a frame, each taking the same 66 draw calls.
+
+    Still to do for a real XR path: per-eye projection matrices from the headset rather than one shared camera
+    (setFrustumCameraTransform), rendering into the framebuffer WebXR hands over, driving the loop from
+    XRSession.requestAnimationFrame instead of emscripten_set_main_loop, the y-up to z-up conversion, and a
+    world-space UI.  Note also that two eyes currently means twice the draw calls, so multiview is worth having.
+
+    There is no other VR or XR code anywhere in Substrata; see the notes from the initial assessment.  The web client is the right target, and the engine work - per-eye projection, rendering into the
     XR framebuffer, a world-space UI - lands mostly in glare-core.
 
     First measurements on a Quest, web client as a 2D browser panel, empty root world, ?fps=1&scale=N:

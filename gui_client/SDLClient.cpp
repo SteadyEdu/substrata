@@ -174,6 +174,9 @@ static bool show_imgui_info_window = false;
 // deserves to find the answer here rather than discovering it again.  Measuring GPU time under WebGL2 needs a
 // fence - fenceSync plus a polled clientWaitSync, since the spec forbids a blocking timeout.
 static bool sync_gl_for_timing = false;
+
+// ?stereo=1.  Draw the scene twice into one framebuffer, side by side.  See the loop in doOneMainLoopIter().
+static bool draw_stereo = false;
 #if EMSCRIPTEN
 extern "C" void emscripten_glFinish(void);
 #endif
@@ -388,6 +391,10 @@ int main(int argc, char** argv)
 				const auto sync_res = gfx_queries.find("glfinish");
 				if((sync_res != gfx_queries.end()) && (sync_res->second == "1"))
 					sync_gl_for_timing = true;
+
+				const auto stereo_res = gfx_queries.find("stereo");
+				if((stereo_res != gfx_queries.end()) && (stereo_res->second == "1"))
+					draw_stereo = true;
 			}
 		}
 		conPrint("Graphics profile from URL: '" + gfx_profile + "'");
@@ -1272,13 +1279,44 @@ static void doOneMainLoopIter()
 
 		const float sensor_width = sensorWidth();
 		const float lens_sensor_dist = (float)gui_client->cam_controller.lens_sensor_dist;
-		const float viewport_aspect_ratio = (float)gl_w / (float)gl_h;
-		const float render_aspect_ratio = viewport_aspect_ratio;
-		opengl_engine->setViewportDims(gl_w, gl_h);
+
 		opengl_engine->setNearDrawDistance(near_draw_dist);
 		opengl_engine->setMaxDrawDistance(max_draw_dist);
-		opengl_engine->setPerspectiveCameraTransform(world_to_camera_space_matrix, sensor_width, lens_sensor_dist, render_aspect_ratio, /*lens shift up=*/0.f, /*lens shift right=*/0.f);
-		opengl_engine->draw();
+
+		// ?stereo=1 draws the scene twice, side by side in one framebuffer, each eye into its own half.
+		//
+		// This is the shape a WebXR frame has, minus WebXR: two views sharing a framebuffer, each addressed by a
+		// viewport offset.  It is here to prove the offset is honoured - a split view is either right down the
+		// middle or obviously wrong - and to put a number on what a second view costs, which the single-view
+		// measurements could not.  Both eyes use the same projection, so this is not a correct stereo image; it
+		// is the cost and the plumbing, not the optics.
+		const int num_views = draw_stereo ? 2 : 1;
+		for(int view = 0; view < num_views; ++view)
+		{
+			const int view_w = gl_w / num_views;
+
+			if(draw_stereo)
+				opengl_engine->setViewportRect(view * view_w, 0, view_w, gl_h);
+			else
+				opengl_engine->setViewportDims(view_w, gl_h);
+
+			Matrix4f view_matrix = world_to_camera_space_matrix;
+			if(draw_stereo)
+			{
+				// Shift the camera along its own x axis by half an interpupillary distance, one way per eye.
+				const float half_IPD = 0.032f;
+				const float shift = (view == 0) ? half_IPD : -half_IPD;
+				view_matrix = Matrix4f::translationMatrix(shift, 0, 0) * view_matrix;
+			}
+
+			const float render_aspect_ratio = (float)view_w / (float)gl_h;
+			opengl_engine->setPerspectiveCameraTransform(view_matrix, sensor_width, lens_sensor_dist, render_aspect_ratio, /*lens shift up=*/0.f, /*lens shift right=*/0.f);
+			opengl_engine->draw();
+		}
+
+		// Leave the viewport covering the whole target, so anything drawn afterwards is not confined to one eye.
+		if(draw_stereo)
+			opengl_engine->setViewportDims(gl_w, gl_h);
 	}
 
 	if(show_imgui_info_window)
