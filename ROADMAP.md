@@ -114,12 +114,31 @@ WebXR
     before a single pixel is shaded, leaving room for 6% of a Quest 3's per-eye resolution.  At 90 Hz the
     overhead alone exceeds the budget.  The earlier 26% figure assumed that fixed cost was per frame.  It is not.
 
-    So sharing work between eyes is a prerequisite rather than an optimisation.  The leading suspect is passes
-    that do not depend on the view being re-run for each one: draw() calls drawAuroraTex() and drawCloudEnvMap()
-    every time, and the latter raymarches clouds into a lat-long map indexed by world-space direction - by its
-    own description independent of where the camera is.  Both eyes pay for it.  Hoisting the view-independent
-    passes out of the per-view draw is the first thing to try, ahead of multiview, because it is much smaller and
-    the measurement says the waste is there.
+    That suspicion fell to a trace.  Tracing the GL context at gfx=min shows no framebuffer objects bound at all
+    and only the two eye viewports: every draw goes straight to the default framebuffer.  drawCloudEnvMap() never
+    runs, because volumetric_clouds_support defaults off and the client never sets it, and drawAuroraTex() never
+    runs either, because the engine's own draw_aurora defaults off.  There was no redundant pass to hoist.
+
+    What did differ between the views was the clear.  The second eye's clear was confined to its rectangle, which
+    is the expensive case on a tile-based GPU: a whole-framebuffer clear lets the driver treat the old contents
+    as dead, while a partial one forces them to be loaded and written back.  Clearing the whole target once for
+    the first view and not at all for later ones - setViewIndexInFrame() - recovered 3.2 ms of the 5.1:
+
+        one view            54.0 fps   18.5 ms
+        two views, before   42.4 fps   23.6 ms
+        two views, after    49.0 fps   20.4 ms
+
+    So the fixed cost now splits as 1.9 ms per view and 5.5 ms per frame, and at 72 Hz that leaves 18% of a
+    Quest 3's per-eye resolution, a framebuffer scale of 0.43.  90 Hz remains out of reach.
+
+    The per-frame 5.5 ms is now the largest term and is mostly not the client: cpu is 0.2 ms and draw submission
+    0.5 ms.  Fitting gfx=high from the scales where the canvas overflows and extrapolating to the one where it
+    does not put about 3.8 ms on the browser compositing an oversized canvas - which an immersive WebXR session
+    does not do at all, since the app renders into the headset's framebuffer rather than a 2D page.  If that
+    holds, the figure at 72 Hz is nearer 33%, a scale of 0.58, which is a usable headset image.
+
+    That is an inference the 2D panel cannot test, because the thing in question is the panel.  Measuring further
+    through it has stopped paying.  The next step that reduces uncertainty is a minimal WebXR session.
 
     Still to do for a real XR path: per-eye projection matrices from the headset rather than one shared camera
     (setFrustumCameraTransform), rendering into the framebuffer WebXR hands over, driving the loop from
