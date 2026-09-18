@@ -126,6 +126,14 @@ public:
 	static const int MAX_CUSTOM_PROMPT_PART_SIZE = 10000;
 	std::string custom_prompt_part;
 
+	// id_string of the AI model this bot thinks with, e.g. "anthropic/claude-opus-5" or a model defined in the
+	// <ai_models> section of the server config.  Empty means use the server-wide default (ServerConfig::AI_model_id),
+	// which is also what every bot created before this field existed gets.
+	// Per-bot rather than per-server so a sixth-grade maths tutor and a high-school chemistry tutor can run on
+	// different models - including one served from the school's own network.
+	static const int MAX_MODEL_ID_SIZE = 200;
+	std::string model_id;
+
 	std::map<std::string, Reference<ChatBotToolFunction>> info_tool_functions; // Map from function name to ChatBotToolFunction ref.  Tool functions that the LLM can call.
 
 	DatabaseKey database_key;

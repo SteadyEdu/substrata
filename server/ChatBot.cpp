@@ -9,6 +9,7 @@ Copyright Glare Technologies Limited 2026 -
 #include "Server.h"
 #include "ServerWorldState.h"
 #include "ChatTranscriptLog.h"
+#include "AIModelRegistry.h"
 #include "../shared/MessageUtils.h"
 #include "../shared/Protocol.h"
 #include <ai/LLMThread.h>
@@ -699,7 +700,24 @@ Reference<LLMThread> ChatBot::createLLMThread(Server* server)
 	}
 
 	llm_thread_settings.base_prompt = "Your name is '" + this->name + "'. " + server->config.shared_LLM_prompt_part + this->custom_prompt_part;
-	Reference<LLMThread> new_llm_thread = new LLMThread(server->config.AI_model_id, llm_thread_settings, &server->world_state->server_credentials, &server->message_queue);
+
+	// Use this bot's own model if it has one, otherwise the server-wide default.
+	const std::string use_model_id = model_id.empty() ? server->config.AI_model_id : model_id;
+
+	// A model defined in the server config carries its own endpoint, which is how a locally hosted model is reached.
+	// Anything else is left to LLMThread to look up in its built-in table by id.
+	AIModel config_model;
+	Reference<LLMThread> new_llm_thread;
+	if(AIModelRegistry::getModelForID(server->config, use_model_id, config_model))
+	{
+		conPrint("ChatBot '" + name + "': using model '" + use_model_id + "' at " + config_model.apiURL());
+		new_llm_thread = new LLMThread(config_model, llm_thread_settings, &server->world_state->server_credentials, &server->message_queue);
+	}
+	else
+	{
+		conPrint("ChatBot '" + name + "': using model '" + use_model_id + "'");
+		new_llm_thread = new LLMThread(use_model_id, llm_thread_settings, &server->world_state->server_credentials, &server->message_queue);
+	}
 	new_llm_thread->user = this;
 
 	return new_llm_thread;
@@ -742,6 +760,9 @@ void ChatBot::writeToStream(RandomAccessOutStream& stream)
 	{
 		it->second->writeToStream(stream);
 	}
+
+	// Fields added after the initial version go at the end, where an older reader stops and skips over them.
+	stream.writeStringLengthFirst(model_id);
 
 
 	// Go back and write size of buffer to buffer size field
@@ -787,6 +808,10 @@ void readChatBotFromStream(RandomAccessInStream& stream, ChatBot& chatbot)
 		readChatBotToolFunctionFromStream(stream, *func);
 		chatbot.info_tool_functions[func->function_name] = func;
 	}
+
+	// model_id was added after the initial version, so a record written before then simply ends here.
+	if((stream.getReadIndex() - initial_read_index) < buffer_size)
+		chatbot.model_id = stream.readStringLengthFirst(ChatBot::MAX_MODEL_ID_SIZE);
 
 
 	// Discard any remaining unread data

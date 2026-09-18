@@ -29,6 +29,37 @@ If webclient_dir is present, then it overrides the default value of the webclien
 Likewise for webserver_public_files_dir.
 
 
+AI models
+---------
+Chatbots think with an AI model.  A bot with no model of its own uses the one named by <AI_model_id>; otherwise it
+uses the model chosen for it on its page in the web interface.
+
+The models on offer are the ones built in to glare-core plus any listed in an optional <ai_models> section of the
+server config.  A listed model whose <id> matches a built-in one replaces it.  This is how you point a bot at a model
+running on your own network, which matters when the content should not leave the building, or when you want a model
+fine-tuned for a particular grade or subject.
+
+	<ai_models>
+		<model>
+			<id>local/llama-3.1-8b-instruct</id>       <!-- Stored on each chatbot.  Keep it stable. -->
+			<name>Llama 3.1 8B (local)</name>          <!-- Shown when choosing a model.  Defaults to <id>. -->
+			<description>Runs in the building.</description>
+			<api_id>llama3.1:8b</api_id>               <!-- The id the API itself expects.  Defaults to <id>. -->
+			<scheme>http</scheme>                      <!-- "https" (default) or "http". -->
+			<domain>localhost</domain>
+			<port>11434</port>                         <!-- Omit for the default port for the scheme. -->
+			<path>/v1/chat/completions</path>
+			<provider>other</provider>                 <!-- anthropic | xai | openai | google | other -->
+		</model>
+	</ai_models>
+
+<provider> selects the request format.  "anthropic" uses the Anthropic Messages API; every other value uses the
+OpenAI-compatible chat completions format, which is what Ollama, llama.cpp, vLLM and LM Studio all serve.
+
+Omit <credential_name> for an endpoint that needs no API key, which is the usual case for a locally hosted model.
+Otherwise set it to the name of the entry in the server credentials file holding the key, e.g. anthropic_api_key.
+
+
 Webserver public files dir
 --------------------------
 This directory holds files used by the website, such as CSS files, images, javascript files (map.js) etc.

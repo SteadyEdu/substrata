@@ -21,6 +21,7 @@ Copyright Glare Technologies Limited 2026 -
 #include <Lock.h>
 #include <StringUtils.h>
 #include <BitUtils.h>
+#include "../server/AIModelRegistry.h"
 #include <PlatformUtils.h>
 #include <Parser.h>
 #include <MemMappedFile.h>
@@ -94,6 +95,36 @@ void renderEditChatBotPage(ServerAllWorldsState& world_state, const web::Request
 						page += "<label for=\"base_prompt\">Custom prompt part:</label><br/>";
 						page += "<textarea rows=\"20\" class=\"full-width\" id=\"base_prompt\" name=\"base_prompt\">" + web::Escaping::HTMLEscape(chatbot->custom_prompt_part) + "</textarea>";
 						page += "<div class=\"field-description\">Max 10,000 characters</div>";
+						page += "</div>";
+
+						// Model picker.  A bot with no model of its own follows the server-wide default, which is the first option.
+						page += "<div class=\"form-field\">";
+						page += "<label for=\"model_id\">Model:</label><br/>";
+						page += "<select id=\"model_id\" name=\"model_id\">";
+						page += std::string("<option value=\"\"") + (chatbot->model_id.empty() ? " selected" : "") + ">Server default (" +
+							web::Escaping::HTMLEscape(world_state.server_config.AI_model_id) + ")</option>";
+
+						{
+							const std::vector<AIModel> models = AIModelRegistry::getAvailableModels(world_state.server_config);
+							bool found_current_model = chatbot->model_id.empty();
+							for(size_t i=0; i<models.size(); ++i)
+							{
+								const bool selected = (models[i].id_string == chatbot->model_id);
+								found_current_model = found_current_model || selected;
+								page += "<option value=\"" + web::Escaping::HTMLEscape(models[i].id_string) + "\"" + (selected ? " selected" : "") + ">" +
+									web::Escaping::HTMLEscape(models[i].name.empty() ? models[i].id_string : models[i].name) + "</option>";
+							}
+
+							// The bot refers to a model that is no longer configured.  Keep it in the list rather than silently
+							// resetting the bot to the default the next time someone saves this page.
+							if(!found_current_model)
+								page += "<option value=\"" + web::Escaping::HTMLEscape(chatbot->model_id) + "\" selected>" +
+									web::Escaping::HTMLEscape(chatbot->model_id) + " (not configured on this server)</option>";
+						}
+
+						page += "</select>";
+						page += "<div class=\"field-description\">Which AI model this bot thinks with.  Models are listed in the &lt;ai_models&gt; "
+							"section of the server config, which can include a model running on your own network.</div>";
 						page += "</div>";
 
 						page += "<div class=\"form-field\">";
@@ -399,6 +430,7 @@ void handleEditChatBotPost(ServerAllWorldsState& world_state, const web::Request
 		const double new_heading = request.getPostDoubleField("heading");
 
 		const bool new_private_conversation = request.getPostField("private_conversation") == "checked";
+		const web::UnsafeString new_model_id = request.getPostField("model_id");
 
 		{ // Lock scope
 
@@ -443,6 +475,10 @@ void handleEditChatBotPost(ServerAllWorldsState& world_state, const web::Request
 							chatbot->heading = (float)new_heading;
 
 							BitUtils::setOrZeroBit(chatbot->flags, ChatBot::PRIVATE_CONVERSATION_FLAG, new_private_conversation);
+
+							chatbot->model_id = new_model_id.str();
+							if(chatbot->model_id.size() > ChatBot::MAX_MODEL_ID_SIZE)
+								chatbot->model_id.clear(); // Not a value we offered; fall back to the server default.
 
 
 							// Update the avatar's state

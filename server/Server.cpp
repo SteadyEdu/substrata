@@ -175,6 +175,31 @@ static ServerConfig parseServerConfig(const std::string& config_path)
 	config.log_chat_transcripts					= XMLParseUtils::parseBoolWithDefault(root_elem, "log_chat_transcripts", /*default val=*/true);
 	config.chat_transcript_dir					= XMLParseUtils::parseStringWithDefault(root_elem, "chat_transcript_dir", /*default val=*/"");
 	config.chat_transcript_retention_days		= XMLParseUtils::parseIntWithDefault(root_elem, "chat_transcript_retention_days", /*default val=*/0);
+
+	// Parse the optional <ai_models> section, which lets an operator add models - a locally hosted one, say - without
+	// needing a new build.  See AIModelConfig.
+	for(pugi::xml_node models_elem = root_elem.child("ai_models"); models_elem; models_elem = models_elem.next_sibling("ai_models"))
+	{
+		for(pugi::xml_node model_elem = models_elem.child("model"); model_elem; model_elem = model_elem.next_sibling("model"))
+		{
+			AIModelConfig model;
+			model.id              = XMLParseUtils::parseString(model_elem, "id");
+			model.name            = XMLParseUtils::parseStringWithDefault(model_elem, "name", model.id);
+			model.description     = XMLParseUtils::parseStringWithDefault(model_elem, "description", "");
+			model.api_id          = XMLParseUtils::parseStringWithDefault(model_elem, "api_id", model.id);
+			model.scheme          = XMLParseUtils::parseStringWithDefault(model_elem, "scheme", "https");
+			model.domain          = XMLParseUtils::parseString(model_elem, "domain");
+			model.port            = XMLParseUtils::parseIntWithDefault(model_elem, "port", /*default val=*/-1);
+			model.path            = XMLParseUtils::parseString(model_elem, "path");
+			model.credential_name = XMLParseUtils::parseStringWithDefault(model_elem, "credential_name", "");
+			model.provider        = XMLParseUtils::parseStringWithDefault(model_elem, "provider", "other");
+
+			config.ai_models.push_back(model);
+		}
+	}
+
+	if(!config.ai_models.empty())
+		conPrint("Read " + toString(config.ai_models.size()) + " AI model(s) from the server config.");
 	config.shared_LLM_prompt_part				= XMLParseUtils::parseStringWithDefault(root_elem, "shared_LLM_prompt_part", /*default val=*/
 		std::string("You are a helpful bot in the Substrata Metaverse.\n") + 
 		std::string("When a user first talks to you, wave hello to them using the perform_wave_gesture tool function, or bow to them using the perform_bow_gesture tool function.\n") + 
