@@ -135,6 +135,24 @@ Cross-Origin-Embedder-Policy is blocked, so all thirty workers fail and nothing 
 loads must carry those headers, not just the HTML.
 
 
+Build type: use Release for anything you intend to measure
+----------------------------------------------------------
+	-DCMAKE_BUILD_TYPE=Release           -O3 -DNDEBUG
+	-DCMAKE_BUILD_TYPE=RelWithDebInfo    -O1 -g1 -DNDEBUG, and -DBUILD_TESTS=1
+
+RelWithDebInfo deliberately uses -O1 rather than -O2 because it links far faster, which is the right trade for
+iterating.  It is the wrong build to draw performance conclusions from: it is two optimisation levels down and has
+the test code compiled in.  Release is about 1.1 MB smaller in the wasm.
+
+Keep them in separate build and output directories so one does not overwrite the other, and point <webclient_dir>
+at whichever you mean to serve.
+
+Baseline for comparison, so a regression is visible: a Release build renders the empty root world at a steady 60 fps
+at 1280x800 on an M-series MacBook, worst frame 17.7 ms over five seconds.  Note that 60 is the vsync cap, so this
+says the client is not struggling, not how much headroom it has - it says nothing about a standalone headset, whose
+GPU is far weaker and which needs two eyes at 72 Hz or better.
+
+
 macOS portability fixes applied in this repo
 --------------------------------------------
 Three changes were needed to build on a modern macOS SDK.  The first is ours to
