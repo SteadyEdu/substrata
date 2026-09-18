@@ -112,9 +112,16 @@ public:
 	// user rather than broadcast to the whole world.
 	static const uint32 PRIVATE_CONVERSATION_FLAG = 1;
 
+	// DISABLE_GESTURE_TOOLS_FLAG: do not offer the built-in wave and bow tool functions to the model.
+	// Small models - the ones a school is most likely to be able to run on its own hardware - tend to answer a tool
+	// call *instead of* speaking, so a bot given these tools can end up waving at a student and saying nothing.
+	// The flag is "disable" rather than "enable" so that bots created before it existed keep their gestures.
+	static const uint32 DISABLE_GESTURE_TOOLS_FLAG = 2;
+
 	uint32 flags;
 
 	bool isPrivateConversationBot() const { return (flags & PRIVATE_CONVERSATION_FLAG) != 0; }
+	bool gestureToolsEnabled() const { return (flags & DISABLE_GESTURE_TOOLS_FLAG) == 0; }
 
 	// Should a chat message from the given avatar be kept out of world chat, because it is part of this bot's
 	// private conversation?  Called by WorkerThread before it decides how to deliver the user's own message.

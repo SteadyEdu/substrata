@@ -128,6 +128,12 @@ void renderEditChatBotPage(ServerAllWorldsState& world_state, const web::Request
 						page += "</div>";
 
 						page += "<div class=\"form-field\">";
+						page += std::string("Allow gesture tools: <input type=\"checkbox\" name=\"gesture_tools\" value=\"checked\" ") + (chatbot->gestureToolsEnabled() ? "checked" : "") + ">";
+						page += "<div class=\"field-description\">Lets the bot wave and bow.  Turn this off for a bot running on a small model: "
+							"such models tend to answer with a gesture <i>instead of</i> speaking, so the bot waves at the student and says nothing.</div>";
+						page += "</div>";
+
+						page += "<div class=\"form-field\">";
 						page += std::string("Private conversations: <input type=\"checkbox\" name=\"private_conversation\" value=\"checked\" ") + (chatbot->isPrivateConversationBot() ? "checked" : "") + ">";
 						page += "<div class=\"field-description\">If ticked, this bot talks to one person at a time, and what each of them says to it is not shown in world chat.  "
 							"Use this for tutoring, where a student should be able to ask a question without the rest of the room seeing it.</div>";
@@ -430,6 +436,7 @@ void handleEditChatBotPost(ServerAllWorldsState& world_state, const web::Request
 		const double new_heading = request.getPostDoubleField("heading");
 
 		const bool new_private_conversation = request.getPostField("private_conversation") == "checked";
+		const bool new_gesture_tools = request.getPostField("gesture_tools") == "checked";
 		const web::UnsafeString new_model_id = request.getPostField("model_id");
 
 		{ // Lock scope
@@ -475,6 +482,7 @@ void handleEditChatBotPost(ServerAllWorldsState& world_state, const web::Request
 							chatbot->heading = (float)new_heading;
 
 							BitUtils::setOrZeroBit(chatbot->flags, ChatBot::PRIVATE_CONVERSATION_FLAG, new_private_conversation);
+							BitUtils::setOrZeroBit(chatbot->flags, ChatBot::DISABLE_GESTURE_TOOLS_FLAG, !new_gesture_tools);
 
 							chatbot->model_id = new_model_id.str();
 							if(chatbot->model_id.size() > ChatBot::MAX_MODEL_ID_SIZE)

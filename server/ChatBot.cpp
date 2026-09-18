@@ -670,17 +670,20 @@ Reference<LLMThread> ChatBot::createLLMThread(Server* server)
 	time_since_last_LLM_activity.reset();
 
 	std::vector<Reference<ChatBotToolFunction>> built_in_tool_functions;
+	if(gestureToolsEnabled()) // See DISABLE_GESTURE_TOOLS_FLAG.
 	{
-		Reference<ChatBotToolFunction> func = new ChatBotToolFunction();
-		func->function_name = "perform_wave_gesture";
-		func->description = "Make the chatbot's avatar perform a waving gesture.";
-		built_in_tool_functions.push_back(func);
-	}
-	{
-		Reference<ChatBotToolFunction> func = new ChatBotToolFunction();
-		func->function_name = "perform_bow_gesture";
-		func->description = "Make the chatbot's avatar perform a quick, informal bowing gesture.";
-		built_in_tool_functions.push_back(func);
+		{
+			Reference<ChatBotToolFunction> func = new ChatBotToolFunction();
+			func->function_name = "perform_wave_gesture";
+			func->description = "Make the chatbot's avatar perform a waving gesture.";
+			built_in_tool_functions.push_back(func);
+		}
+		{
+			Reference<ChatBotToolFunction> func = new ChatBotToolFunction();
+			func->function_name = "perform_bow_gesture";
+			func->description = "Make the chatbot's avatar perform a quick, informal bowing gesture.";
+			built_in_tool_functions.push_back(func);
+		}
 	}
 
 
@@ -703,6 +706,9 @@ Reference<LLMThread> ChatBot::createLLMThread(Server* server)
 
 	// Use this bot's own model if it has one, otherwise the server-wide default.
 	const std::string use_model_id = model_id.empty() ? server->config.AI_model_id : model_id;
+
+	llm_thread_settings.reasoning_effort = AIModelRegistry::getReasoningEffortForID(server->config, use_model_id,
+		llm_thread_settings.reasoning_effort);
 
 	// A model defined in the server config carries its own endpoint, which is how a locally hosted model is reached.
 	// Anything else is left to LLMThread to look up in its built-in table by id.

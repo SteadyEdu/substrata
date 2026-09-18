@@ -193,6 +193,7 @@ static ServerConfig parseServerConfig(const std::string& config_path)
 			model.path            = XMLParseUtils::parseString(model_elem, "path");
 			model.credential_name = XMLParseUtils::parseStringWithDefault(model_elem, "credential_name", "");
 			model.provider        = XMLParseUtils::parseStringWithDefault(model_elem, "provider", "other");
+			model.reasoning_effort = XMLParseUtils::parseStringWithDefault(model_elem, "reasoning_effort", "");
 
 			config.ai_models.push_back(model);
 		}

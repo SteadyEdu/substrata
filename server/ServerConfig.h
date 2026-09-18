@@ -44,6 +44,12 @@ struct AIModelConfig
 	// "anthropic", "xai", "openai", "google", or "other".  Picks the request format.  Anthropic has its own; every
 	// other value uses the OpenAI-compatible format, which is what local model servers speak.
 	std::string provider;
+
+	// "none", "low" (the default), "med", "high", "xhigh" or "max".
+	// Use "none" for a small local reasoning model: left to reason, such a model can spend its entire output budget
+	// thinking and return nothing at all.  Measured against qwen3.5:2b via Ollama, "low" did not answer within 90
+	// seconds while "none" answered correctly in about 6.
+	std::string reasoning_effort;
 };
 
 

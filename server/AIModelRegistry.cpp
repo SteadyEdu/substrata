@@ -54,6 +54,39 @@ static AIModel modelForConfig(const AIModelConfig& config_model)
 }
 
 
+static bool reasoningEffortForString(const std::string& s, LLMClient::ReasoningEffort& effort_out)
+{
+	if(StringUtils::equalCaseInsensitive(s, "none"))       effort_out = LLMClient::ReasoningEffort_none;
+	else if(StringUtils::equalCaseInsensitive(s, "low"))   effort_out = LLMClient::ReasoningEffort_low;
+	else if(StringUtils::equalCaseInsensitive(s, "med"))   effort_out = LLMClient::ReasoningEffort_med;
+	else if(StringUtils::equalCaseInsensitive(s, "high"))  effort_out = LLMClient::ReasoningEffort_high;
+	else if(StringUtils::equalCaseInsensitive(s, "xhigh")) effort_out = LLMClient::ReasoningEffort_xhigh;
+	else if(StringUtils::equalCaseInsensitive(s, "max"))   effort_out = LLMClient::ReasoningEffort_max;
+	else return false;
+
+	return true;
+}
+
+
+LLMClient::ReasoningEffort getReasoningEffortForID(const ServerConfig& config, const std::string& model_id,
+	LLMClient::ReasoningEffort default_effort)
+{
+	for(size_t i=0; i<config.ai_models.size(); ++i)
+		if(config.ai_models[i].id == model_id && !config.ai_models[i].reasoning_effort.empty())
+		{
+			LLMClient::ReasoningEffort effort;
+			if(reasoningEffortForString(config.ai_models[i].reasoning_effort, effort))
+				return effort;
+
+			conPrint("AIModelRegistry: ignoring unknown reasoning_effort '" + config.ai_models[i].reasoning_effort +
+				"' for model '" + model_id + "'.");
+			break;
+		}
+
+	return default_effort;
+}
+
+
 std::vector<AIModel> getAvailableModels(const ServerConfig& config)
 {
 	std::vector<AIModel> models = getBuiltInAIModels();

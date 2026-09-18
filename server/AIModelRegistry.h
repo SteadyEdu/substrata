@@ -7,6 +7,7 @@ Copyright Glare Technologies Limited 2026 -
 
 
 #include <ai/LLMClient.h>
+#include <ai/LLMThread.h>
 #include <string>
 #include <vector>
 class ServerConfig;
@@ -33,6 +34,11 @@ std::vector<AIModel> getAvailableModels(const ServerConfig& config);
 
 // Look up a single model by its id_string.  Returns false if there is no model with that id.
 bool getModelForID(const ServerConfig& config, const std::string& model_id, AIModel& model_out);
+
+// The reasoning effort configured for the given model id, or the supplied default if the model is not one of ours
+// or gives no reasoning_effort.
+LLMClient::ReasoningEffort getReasoningEffortForID(const ServerConfig& config, const std::string& model_id,
+	LLMClient::ReasoningEffort default_effort);
 
 void test();
 

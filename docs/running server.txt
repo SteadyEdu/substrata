@@ -50,6 +50,7 @@ fine-tuned for a particular grade or subject.
 			<port>11434</port>                         <!-- Omit for the default port for the scheme. -->
 			<path>/v1/chat/completions</path>
 			<provider>other</provider>                 <!-- anthropic | xai | openai | google | other -->
+			<reasoning_effort>none</reasoning_effort>  <!-- none | low (default) | med | high | xhigh | max -->
 		</model>
 	</ai_models>
 
@@ -58,6 +59,26 @@ OpenAI-compatible chat completions format, which is what Ollama, llama.cpp, vLLM
 
 Omit <credential_name> for an endpoint that needs no API key, which is the usual case for a locally hosted model.
 Otherwise set it to the name of the entry in the server credentials file holding the key, e.g. anthropic_api_key.
+
+
+Running a chatbot on a small local model
+----------------------------------------
+Three things will otherwise make a small local model look broken rather than merely limited.  All three were seen
+with qwen3.5:2b served by Ollama.
+
+1. Set <reasoning_effort>none</reasoning_effort>.  A small reasoning model given the chatbot system prompt can spend
+   its whole output budget thinking, get truncated before it writes any content, and return an empty response.  At
+   the default "low" effort that model did not answer within four minutes; at "none" it answered in about six
+   seconds.  This is by far the most important setting.
+
+2. Turn off "Allow gesture tools" on the chatbot page.  Small models tend to answer with a tool call *instead of*
+   speaking, so the bot waves at the user and says nothing.
+
+3. Use 127.0.0.1 rather than localhost in <domain> if the model server is IPv4-only, as Ollama is by default.
+   "localhost" can resolve to ::1 and the connection then fails.
+
+scripts/chatbot_test_client.py exercises all of this without needing the 3D client: it connects, logs in, stands in
+front of a bot, says something and prints the replies, noting which arrived privately.
 
 
 Webserver public files dir
