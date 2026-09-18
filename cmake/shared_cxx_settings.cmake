@@ -235,7 +235,13 @@ elseif(APPLE)
 
 	# Jolt uses shared_mutex which was introduced in macOS 10.12.
 	SET(CMAKE_OSX_DEPLOYMENT_TARGET "10.12")
-	SET(CMAKE_OSX_SYSROOT "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk")
+	# Use the SDK from a full Xcode install if there is one, otherwise leave CMAKE_OSX_SYSROOT unset and let CMake find
+	# the SDK itself.  Hardcoding the Xcode path means the build fails with nothing but "'math.h' file not found" on a
+	# machine that only has the Command Line Tools installed, which is a perfectly good way to build the server.
+	SET(XCODE_MACOS_SDK_DIR "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk")
+	if(EXISTS "${XCODE_MACOS_SDK_DIR}")
+		SET(CMAKE_OSX_SYSROOT "${XCODE_MACOS_SDK_DIR}")
+	endif()
 
 	add_definitions(-DOSX_DEPLOYMENT_TARGET="${CMAKE_OSX_DEPLOYMENT_TARGET}")
 

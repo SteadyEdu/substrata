@@ -91,6 +91,9 @@ programAvailable("ruby")
 
 SET(INDIGO_SUPPORT OFF CACHE BOOL "Enable building with Indigo Renderer.")
 
+SET(BUILD_GUI_CLIENT ON CACHE BOOL "Build the gui_client target.  Needs Qt or SDL, and LLVM.")
+SET(BUILD_SERVER ON CACHE BOOL "Build the server target.")
+
 
 MESSAGE("\n----------Env vars:----------")
 
@@ -272,10 +275,16 @@ MESSAGE("openssldir: ${openssldir}")
 ADD_SUBDIRECTORY(libs)
 
 # GUI client
-ADD_SUBDIRECTORY(gui_client gui_client)
+# The gui_client needs Qt (or SDL) and LLVM, none of which the server needs.  Turning it off makes it possible to
+# build and test just the server without them, which is what a server deployment or a server-side CI build wants.
+if(BUILD_GUI_CLIENT)
+	ADD_SUBDIRECTORY(gui_client gui_client)
+endif()
 
 # server
-ADD_SUBDIRECTORY(server server)
+if(BUILD_SERVER)
+	ADD_SUBDIRECTORY(server server)
+endif()
 
 # Disabled for now as require INDIGO SDK:
 #ADD_SUBDIRECTORY(cv_bot cv_bot)

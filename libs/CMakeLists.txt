@@ -192,6 +192,20 @@ include(../cmake/shared_cxx_settings.cmake)
 add_definitions(-DPNG_ALLOW_BENIGN_ERRORS)
 
 # openexr_all_files is defined in openexr.cmake which is included from shared_cxx_settings.cmake.
+# Modern macOS SDKs define TARGET_OS_MAC, which makes these vendored copies of zlib and libpng take branches meant
+# for Classic Mac OS.  Both break the build, and both are fixed by getting the real system header in first:
+#
+#  * pngpriv.h includes <fp.h>, gone for two decades, unless <math.h> got there first and defined __MATH_H__.
+#  * zutil.h does "#define fdopen(fd,mode) NULL", which then mangles the fdopen declaration in <stdio.h> when
+#    gzguts.h includes it.  Including <stdio.h> up front means the declaration is already in before the macro
+#    exists.  zlib never actually calls fdopen, so the macro being defined afterwards is harmless.
+#
+# The real fix belongs upstream in glare-core, which vendors these libraries - worth reporting.
+if(APPLE)
+	set_source_files_properties(${libpng} PROPERTIES COMPILE_OPTIONS "-include;math.h")
+	set_source_files_properties(${zlib}   PROPERTIES COMPILE_OPTIONS "-include;stdio.h")
+endif()
+
 add_library(libs
 ${openexr_all_files}
 ${libpng}

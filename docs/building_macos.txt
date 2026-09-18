@@ -1,0 +1,114 @@
+Building SubstrataEdu on macOS (Apple Silicon)
+=============================================
+
+These are notes for building on a Mac that has only the Xcode Command Line Tools
+installed, which is the setup this was first got working on (macOS 26.5, arm64,
+Apple clang 21).  See docs/building.txt for the upstream instructions this
+supplements.
+
+
+Building just the server
+------------------------
+The server needs neither Qt/SDL nor LLVM: cmake/winter.cmake is commented out in
+server/CMakeLists.txt, so Winter (and therefore the multi-hour LLVM build) is not
+needed.  Configure with -DBUILD_GUI_CLIENT=OFF to skip the gui_client target and
+its Qt/LLVM requirements entirely.  This is the fast path for server-side work,
+and is what a server deployment or a server-side CI build wants.
+
+Only the gui_client needs LLVM, and only for native builds - the Emscripten web
+client build skips Winter too.
+
+
+Prerequisites
+-------------
+* git, ruby, python3 and the Xcode Command Line Tools.  Full Xcode is NOT needed.
+* CMake.  Use a 3.x release, not 4.x: CMake 4 removed compatibility with
+  cmake_minimum_required() below 3.5, which the vendored third-party libraries
+  still declare.  3.31.12 is known to work.
+
+
+Checkout layout
+---------------
+Check out these three repos as siblings, e.g. under ~/Documents/GitHub:
+
+    git clone https://github.com/glaretechnologies/glare-core.git
+    git clone https://github.com/glaretechnologies/winter.git
+    git clone https://github.com/SteadyEdu/substrata.git
+
+Winter only needs to be present for its headers when building the server; it is
+not compiled.
+
+
+Environment
+-----------
+    export GLARE_CORE_LIBS=<dir where dependency libs get built>
+    export WINTER_DIR=<path to winter checkout>
+    export GLARE_CORE_TRUNK_DIR=<path to glare-core checkout>
+    export CYBERSPACE_OUTPUT=<dir the built executables go in>
+    export PATH="<path to cmake 3.31 bin>:$PATH"
+
+
+Build the dependencies
+----------------------
+    cd glare-core/scripts
+    ruby build_libressl.rb        # ~1 minute
+    ruby build_jpegturbo.rb       # ~15 seconds
+
+    cd substrata/scripts
+    ruby get_libs.rb              # clones Luau and Jolt
+
+build_llvm.rb is NOT needed for a server-only build.
+
+
+Configure and build
+-------------------
+    mkdir substrata-build && cd substrata-build
+    cmake ../substrata -DCEF_SUPPORT=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DTARGET_ARM64=ON -DBUILD_GUI_CLIENT=OFF
+    make server -j8
+
+The binary is written to $CYBERSPACE_OUTPUT/test_builds/server.
+
+
+Running the server
+------------------
+The server reads its state from ~/cyberspace_server_state (see
+docs/running server.txt).  Two things are needed before it will start:
+
+1. A TLS keypair:
+
+    cd ~/cyberspace_server_state
+    openssl req -new -newkey rsa:4096 -x509 -sha256 -days 3650 -nodes \
+        -out MyCertificate.crt -keyout MyKey.key -subj "/CN=localhost"
+
+2. Resources.  scripts/copy_files_to_output.rb populates the gui_client .app
+   bundle, but the server looks for its resources one level up from its own
+   executable, so it also needs:
+
+    mkdir -p $CYBERSPACE_OUTPUT/Resources
+    cp -r substrata/resources $CYBERSPACE_OUTPUT/Resources/resources
+
+Then run $CYBERSPACE_OUTPUT/test_builds/server.  It listens on TCP 7600 (the sub
+protocol), UDP 7601, and TCP 80 and 443 for the website and web client.  The
+first account registered gets UserID 0, which is the server admin ("god user").
+
+
+macOS portability fixes applied in this repo
+--------------------------------------------
+Three changes were needed to build on a modern macOS SDK.  The first is ours to
+keep; the other two work around bugs in the third-party libraries that glare-core
+vendors, and the real fix belongs upstream:
+
+* CMakeLists.txt: BUILD_GUI_CLIENT / BUILD_SERVER options, so the server can be
+  built without Qt and LLVM.
+
+* cmake/shared_cxx_settings.cmake: CMAKE_OSX_SYSROOT was hardcoded to the SDK
+  inside Xcode.app.  With only the Command Line Tools installed this produces
+  nothing but "'math.h' file not found".  Now it uses the Xcode SDK if it is
+  there and otherwise lets CMake find the SDK itself.
+
+* libs/CMakeLists.txt: modern macOS SDKs define TARGET_OS_MAC, which makes the
+  vendored zlib and libpng take code paths written for Classic Mac OS.  libpng
+  tries to include <fp.h>, which has not existed for twenty years, and zlib does
+  "#define fdopen(fd,mode) NULL", which then mangles the fdopen declaration in
+  <stdio.h>.  Both are fixed by force-including the real system header first.
