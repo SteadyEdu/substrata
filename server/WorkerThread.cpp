@@ -11,6 +11,7 @@ Copyright Glare Technologies Limited 2018 -
 #include "Server.h"
 #include "ChatTranscriptLog.h"
 #include "SafetyClassifier.h"
+#include "SafetyAlertThread.h"
 #include "Screenshot.h"
 #include "SubEthTransaction.h"
 #include "MeshLODGenThread.h"
@@ -2847,8 +2848,22 @@ void WorkerThread::doRun()
 
 									if(transcript_record.safety.flagged)
 									{
-										conPrint("SAFETY: flagged message from user '" + client_user_name + "' to chatbot '" + transcript_record.bot_name +
-											"' (matched '" + transcript_record.safety.matched_phrase + "', urgent: " + boolToString(transcript_record.safety.urgent) + ")");
+										// Hand the alert to the SafetyAlertThread, which writes it to the console and emails the safeguarding
+										// leads.  Doing that here would mean an SMTP server's latency stalling this student's conversation.
+										{
+											Reference<SafetyAlertMessage> alert = new SafetyAlertMessage();
+											alert->world_name      = transcript_record.world_name;
+											alert->bot_id          = transcript_record.bot_id;
+											alert->bot_name        = transcript_record.bot_name;
+											alert->student_name    = client_user_name;
+											alert->student_user_id = client_user_id;
+											alert->avatar_uid_str  = client_avatar_uid.toString();
+											alert->text            = msg;
+											alert->safety          = transcript_record.safety;
+											alert->time_str        = TimeStamp::currentTime().dayAndTimeStringUTC();
+
+											server->safety_alert_thread_manager.enqueueMessage(alert);
+										}
 
 										// Tell the user a person will see this.  Saying so plainly matters: a child who has just disclosed something
 										// should not be left believing they said it only to a machine.  The message is deliberately sent even though

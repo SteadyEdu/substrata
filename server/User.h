@@ -90,7 +90,15 @@ public:
 	static const uint32 WORLD_GARDENER_FLAG           = 1; // Can this user add objects outside of parcels
 	static const uint32 ALLOW_DYN_TEX_UPDATE_CHECKING = 2; // Will the user's dynamic_texture_update scripts be run by the server?
 
+	// The person responsible for safeguarding: they are emailed when the safety check flags a message, and can read
+	// the alerts and transcripts for every chatbot on the server, not just their own.
+	// Being told about a disclosure is the whole point of the safety check, so this should be set for at least one
+	// account on any server that children use.
+	static const uint32 SAFEGUARDING_LEAD_FLAG        = 4;
+
 	uint32 flags;
+
+	bool isSafeguardingLead() const { return (flags & SAFEGUARDING_LEAD_FLAG) != 0; }
 
 	DatabaseKey database_key;
 };

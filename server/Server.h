@@ -148,6 +148,10 @@ public:
 
 	ThreadManager llm_thread_manager;
 
+	// Delivers safety alerts to the safeguarding leads.  Talking to an SMTP server can take seconds and can hang, so
+	// it must not happen on the WorkerThread handling a student's conversation.
+	ThreadManager safety_alert_thread_manager;
+
 	ThreadSafeQueue<Reference<ThreadMessage> > message_queue; // Contains messages from worker threads to the main server thread.
 
 	std::string screenshot_dir;

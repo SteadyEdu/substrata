@@ -109,6 +109,7 @@ namespace AdminHandlers
 
 	void handleForceDynTexUpdatePost(ServerAllWorldsState& world_state, const web::RequestInfo& request_info, web::ReplyInfo& reply_info);
 
+	void handleSetUserAsSafeguardingLeadPost(ServerAllWorldsState& world_state, const web::RequestInfo& request, web::ReplyInfo& reply_info);
 	void handleSetUserAsWorldGardenerPost(ServerAllWorldsState& world_state, const web::RequestInfo& request_info, web::ReplyInfo& reply_info);
 
 	void handleSetUserAllowDynTexUpdatePost(ServerAllWorldsState& world_state, const web::RequestInfo& request_info, web::ReplyInfo& reply_info);

@@ -81,6 +81,40 @@ scripts/chatbot_test_client.py exercises all of this without needing the 3D clie
 front of a bot, says something and prints the replies, noting which arrived privately.
 
 
+Safety alerts: who gets told
+----------------------------
+When the safety check flags a message from a student to a chatbot, the alert goes to three places.  The first always
+works; the other two need setting up.
+
+1. The server console, always, with no configuration.
+
+2. The /safety_alerts page, and the alerts-YYYY-MM-DD.jsonl file behind it.  This is the durable record.
+
+3. An email to every user with the safeguarding lead flag.
+
+Set the safeguarding lead flag on the admin page for a user: /admin_user/<user id>, "Set as safeguarding lead".
+That user is emailed whenever an alert is raised, and can read alerts and transcripts for every chatbot on the
+server rather than only their own.  Set it for at least one account on any server children use - otherwise an alert
+only reaches someone who happens to be watching the console.
+
+Email needs these entries in the server credentials file (see "Server Credentials" above).  They are the same ones
+the password reset email uses, so a server that can already send password resets needs nothing further:
+
+	email_sending_smtp_servername: smtp.example.com
+	email_sending_smtp_username: alerts@example.org
+	email_sending_smtp_password: ...
+	email_sending_from_name: SubstrataEdu
+	email_sending_from_email_addr: alerts@example.org
+	email_sending_reset_webserver_hostname: yourserver.example.org
+
+The SMTP connection is made to port 465 using TLS, with AUTH LOGIN.  If email is not configured, or no user has the
+flag, the server says so on the console each time an alert is raised rather than failing quietly.
+
+Email is best-effort on purpose: it is a prompt to go and look at the record, not the record itself.  A mail server
+that is down or misconfigured will not lose an alert and will not affect anything else - the alert is still on the
+console and in the alerts file.
+
+
 Checking whether a model is good enough to teach with
 -----------------------------------------------------
 scripts/chatbot_eval.py runs a set of scripted questions against a bot and reports pass/fail, driving it through the

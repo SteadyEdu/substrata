@@ -13,6 +13,7 @@ Copyright Glare Technologies Limited 2023 -
 #include "DynamicTextureUpdaterThread.h"
 #include "ChunkGenThread.h"
 #include "WorkerThread.h"
+#include "SafetyAlertThread.h"
 #include "ServerTestSuite.h"
 #include "WorldCreation.h"
 #include "LuaHTTPRequestManager.h"
@@ -381,6 +382,10 @@ int main(int argc, char *argv[])
 			{
 				server.chat_transcript_log.open(transcript_dir, server.config.chat_transcript_retention_days);
 				server.world_state->chat_transcript_log = &server.chat_transcript_log; // Let the webserver show transcripts.
+
+				// Started whenever transcripts are on: it writes every alert to the console, which is the one delivery
+				// route that works with no configuration at all.
+				server.safety_alert_thread_manager.addThread(new SafetyAlertThread(server.world_state.ptr()));
 			}
 			catch(glare::Exception& e)
 			{

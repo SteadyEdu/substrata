@@ -246,6 +246,15 @@ void renderAdminUserPage(ServerAllWorldsState& world_state, const web::RequestIn
 
 			page_out += "</p>    \n";
 
+			page_out += "<form action=\"/admin_set_user_as_safeguarding_lead_post\" method=\"post\">";
+			page_out += "<input type=\"hidden\" name=\"user_id\" value=\"" + toString(user_id) + "\">";
+			page_out += "<input type=\"number\" name=\"safeguarding_lead\" value=\"" + toString(BitUtils::isBitSet(user->flags, User::SAFEGUARDING_LEAD_FLAG) ? 1 : 0) + "\">";
+			page_out += "<input type=\"submit\" value=\"Set as safeguarding lead (1 / 0)\" onclick=\"return confirm('This user will be emailed whenever the safety check flags a message, and will be able to read every chatbot conversation on this server.  Are you sure?');\" >";
+			page_out += "</form>";
+			page_out += "<div class=\"field-description\">Emailed when the safety check flags a student message, and can read alerts and transcripts for all chatbots.</div>";
+
+			page_out += "</p>    \n";
+
 			page_out += "<form action=\"/admin_set_user_allow_dyn_tex_update_post\" method=\"post\">";
 			page_out += "<input type=\"hidden\" name=\"user_id\" value=\"" + toString(user_id) + "\">";
 			page_out += "<input type=\"number\" name=\"allow\" value=\"" + toString(BitUtils::isBitSet(user->flags, User::ALLOW_DYN_TEX_UPDATE_CHECKING) ? 1 : 0) + "\">";
@@ -2391,6 +2400,48 @@ void handleForceDynTexUpdatePost(ServerAllWorldsState& world_state, const web::R
 	{
 		if(!request.fuzzing)
 			conPrint("handleForceDynTexUpdatePost error: " + e.what());
+		web::ResponseUtils::writeHTTPOKHeaderAndData(reply_info, "Error: " + e.what());
+	}
+}
+
+
+void handleSetUserAsSafeguardingLeadPost(ServerAllWorldsState& world_state, const web::RequestInfo& request, web::ReplyInfo& reply_info)
+{
+	if(!LoginHandlers::loggedInUserHasAdminPrivs(world_state, request))
+	{
+		web::ResponseUtils::writeHTTPOKHeaderAndData(reply_info, "Access denied sorry.");
+		return;
+	}
+
+	try
+	{
+		const int user_id = request.getPostIntField("user_id");
+		const int safeguarding_lead = request.getPostIntField("safeguarding_lead");
+
+		{ // Lock scope
+			Lock lock(world_state.mutex);
+
+			const auto res = world_state.user_id_to_users.find(UserID(user_id));
+			if(res != world_state.user_id_to_users.end())
+			{
+				User* user = res->second.ptr();
+
+				BitUtils::setOrZeroBit(user->flags, User::SAFEGUARDING_LEAD_FLAG, safeguarding_lead != 0);
+
+				// Worth a line in the server log either way: who can read every child's conversation is exactly the kind
+				// of change someone will later need to account for.
+				conPrint("Set safeguarding lead flag to " + toString(safeguarding_lead != 0) + " for user '" + user->name + "'.");
+
+				world_state.addUserAsDBDirty(user);
+			}
+		} // End lock scope
+
+		web::ResponseUtils::writeRedirectTo(reply_info, "/admin_user/" + toString(user_id));
+	}
+	catch(glare::Exception& e)
+	{
+		if(!request.fuzzing)
+			conPrint("handleSetUserAsSafeguardingLeadPost error: " + e.what());
 		web::ResponseUtils::writeHTTPOKHeaderAndData(reply_info, "Error: " + e.what());
 	}
 }

@@ -251,6 +251,10 @@ void WebServerRequestHandler::handleRequest(const web::RequestInfo& request, web
 		{
 			AdminHandlers::handleSetMinNextNoncePost(*this->world_state, request, reply_info);
 		}
+		else if(request.path == "/admin_set_user_as_safeguarding_lead_post")
+		{
+			AdminHandlers::handleSetUserAsSafeguardingLeadPost(*world_state, request, reply_info);
+		}
 		else if(request.path == "/admin_set_user_as_world_gardener_post")
 		{
 			AdminHandlers::handleSetUserAsWorldGardenerPost(*this->world_state, request, reply_info);

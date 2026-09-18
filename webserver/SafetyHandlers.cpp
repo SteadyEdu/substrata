@@ -26,16 +26,17 @@ namespace SafetyHandlers
 {
 
 
-// A user may review a conversation if they own the chatbot, or if they are the server admin.  Chatbot ownership is
-// the closest thing the server currently has to "the teacher responsible for this tutor"; when there is a proper role
-// model this check should move to it.
+// A user may review a conversation if they are the safeguarding lead, the server admin, or the owner of the chatbot.
+// Chatbot ownership is standing in for "the teacher responsible for this tutor" until there is a proper role model;
+// the safeguarding lead is a real role and sees everything, because a disclosure is not confined to the bot whose
+// owner happens to be on duty.
 static bool userMayReviewChatBot(ServerAllWorldsState& world_state, const User* logged_in_user, uint64 bot_id,
 	WorldStateLock& lock)
 {
 	if(!logged_in_user)
 		return false;
 
-	if(isGodUser(logged_in_user->id))
+	if(isGodUser(logged_in_user->id) || logged_in_user->isSafeguardingLead())
 		return true;
 
 	for(auto world_it = world_state.world_states.begin(); world_it != world_state.world_states.end(); ++world_it)
@@ -84,6 +85,12 @@ void renderSafetyAlertsPage(ServerAllWorldsState& world_state, const web::Reques
 				"match: it will miss things that are phrased unexpectedly, and it will sometimes flag something harmless.  "
 				"Treat a row here as <i>worth reading</i>, not as a conclusion, and do not treat a quiet page as evidence "
 				"that nothing has happened.</p>";
+
+			if(logged_in_user->isSafeguardingLead())
+				page += "<p>You are a safeguarding lead on this server, so you see alerts for every chatbot and are emailed "
+					"when one is raised.</p>";
+			else
+				page += "<p>You see alerts for chatbots you own.</p>";
 
 			const std::vector<ChatTranscriptLog::StoredRecord> alerts = world_state.chat_transcript_log ?
 				world_state.chat_transcript_log->readRecentAlerts(200) : std::vector<ChatTranscriptLog::StoredRecord>();
