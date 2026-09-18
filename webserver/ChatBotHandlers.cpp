@@ -464,6 +464,12 @@ void handleEditChatBotPost(ServerAllWorldsState& world_state, const web::Request
 						if((world->details.owner_id == logged_in_user->id) || // If the user owns this world, or
 							positionIsInParcelForWhichLoggedInUserHasWritePerms(new_pos, logged_in_user->id, *world, lock)) // chatbot is placed in a parcel the user has write permissions for:
 						{
+							// Snapshot the settings that are baked into the LLM thread when it is created, before anything is
+							// written, so we can tell afterwards whether the thread has to be restarted.
+							const std::string old_model_id = chatbot->model_id;
+							const std::string old_prompt   = chatbot->custom_prompt_part;
+							const uint32 old_flags         = chatbot->flags;
+
 							chatbot->name = new_name.str();
 							if(chatbot->name.size() > ChatBot::MAX_NAME_SIZE)
 							{
@@ -487,6 +493,15 @@ void handleEditChatBotPost(ServerAllWorldsState& world_state, const web::Request
 							chatbot->model_id = new_model_id.str();
 							if(chatbot->model_id.size() > ChatBot::MAX_MODEL_ID_SIZE)
 								chatbot->model_id.clear(); // Not a value we offered; fall back to the server default.
+
+							// The model, the prompt and the gesture-tool flag are all read when the LLM thread is created, so a
+							// change to any of them needs the thread restarting to take effect.
+							if((chatbot->model_id != old_model_id) || (chatbot->custom_prompt_part != old_prompt) ||
+								(chatbot->flags != old_flags))
+							{
+								chatbot->llm_thread_needs_restart = true;
+								conPrint("ChatBot '" + chatbot->name + "': settings changed, its LLM thread will be restarted.");
+							}
 
 
 							// Update the avatar's state

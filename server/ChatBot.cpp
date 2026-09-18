@@ -654,6 +654,18 @@ ChatBot::ThinkResults ChatBot::think(Server* server, WorldStateLock& world_lock)
 	}
 
 
+	// Drop the LLM thread if a setting baked into it at creation has changed, so the change takes effect on the next
+	// turn rather than whenever the thread happens to die.
+	if(llm_thread && llm_thread_needs_restart)
+	{
+		conPrint("ChatBot::think: restarting the LLMThread for '" + name + "' because its settings changed.");
+		llm_thread->getMessageQueue().enqueue(new KillThreadMessage());
+		llm_thread->kill();
+		think_results.llm_thread_being_killed = llm_thread;
+		llm_thread = nullptr;
+	}
+	llm_thread_needs_restart = false; // Cleared either way: with no thread, the next one is created with the new settings.
+
 	// Terminate the LLM thread after some period of time without user chat messages to the chatbot or replies from the LLM.
 	const double KILL_TIME_AFTER_LAST_INTERACTION = 120.0;
 	if(llm_thread && (time_since_last_LLM_activity.elapsed() > KILL_TIME_AFTER_LAST_INTERACTION))

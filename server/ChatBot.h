@@ -141,6 +141,12 @@ public:
 	static const int MAX_MODEL_ID_SIZE = 200;
 	std::string model_id;
 
+	// Set when a setting that is baked into the LLM thread at creation - the model, the prompt, the tool functions -
+	// has been changed.  think() then drops the thread so the next turn picks the new setting up.
+	// Without this a change only takes effect once the thread dies of inactivity, which can be minutes away or never
+	// while someone is talking to the bot: a teacher switches model, sees no difference, and concludes it did not work.
+	bool llm_thread_needs_restart = false;
+
 	std::map<std::string, Reference<ChatBotToolFunction>> info_tool_functions; // Map from function name to ChatBotToolFunction ref.  Tool functions that the LLM can call.
 
 	DatabaseKey database_key;
