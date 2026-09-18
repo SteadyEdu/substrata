@@ -277,5 +277,97 @@
 
 	<script async type="text/javascript" src="/webclient/gui_client.js?hash=GUI_CLIENT_JS_HASH"></script>
 
+	<!-- Frame timing overlay.  Does nothing unless the URL carries ?fps=1, so it costs one regex test otherwise.
+
+	     It samples requestAnimationFrame on the main thread, which is the callback the client renders from
+	     (see emscripten_set_main_loop in SDLClient.cpp), so it reports the cadence the client is actually
+	     achieving rather than a number from a separate clock.
+
+	     Read it knowing two things.  The average is capped by the display refresh rate - 60 on a desktop
+	     monitor, 72 or 90 on a headset panel - so an average sitting exactly at the cap says the client is
+	     keeping up and says nothing about how much room is left.  The worst-frame figure is the one that
+	     carries information: it does not saturate.  And in a headset browser this is still a flat panel, not
+	     stereo rendering, so treat any number here as an optimistic bound on what WebXR will cost. -->
+	<script type="text/javascript">
+	(function() {
+		if(!/[?&]fps=1(?:&|$)/.test(window.location.search))
+			return;
+
+		var WARMUP_S = 3.0; // Ignore the load and first-frame hitching, which is not what we are measuring.
+
+		var box = document.createElement('div');
+		box.style.cssText =
+			'position:fixed;top:8px;left:8px;z-index:100000;pointer-events:none;' +
+			'font:16px/1.45 monospace;white-space:pre;color:#fff;' +
+			'background:rgba(0,0,0,0.72);padding:8px 12px;border-radius:6px;';
+		box.textContent = 'frame timing: sampling...';
+		document.body.appendChild(box);
+
+		var start = performance.now();
+		var prev = start;
+		var window_frames = [];   // Frame durations in ms since the last display update.
+		var last_report = start;
+		var worst_ms = 0;         // Worst single frame since warmup ended.
+		var total_frames = 0;
+		var reported = false;
+
+		function percentile(sorted, p) {
+			if(sorted.length === 0) return 0;
+			var i = Math.min(sorted.length - 1, Math.floor(sorted.length * p));
+			return sorted[i];
+		}
+
+		function sample(now) {
+			var dt = now - prev;
+			prev = now;
+			var since_start_s = (now - start) / 1000;
+
+			if(since_start_s > WARMUP_S) {
+				window_frames.push(dt);
+				total_frames++;
+				if(dt > worst_ms) worst_ms = dt;
+			}
+
+			if((now - last_report) >= 1000) {
+				var elapsed_s = (now - last_report) / 1000;
+				last_report = now;
+
+				if(window_frames.length > 0) {
+					var sorted = window_frames.slice().sort(function(a, b) { return a - b; });
+					var fps = window_frames.length / elapsed_s;
+					var lines = [
+						'fps           ' + fps.toFixed(1),
+						'frame median  ' + percentile(sorted, 0.50).toFixed(1) + ' ms',
+						'frame p95     ' + percentile(sorted, 0.95).toFixed(1) + ' ms',
+						'worst (1s)    ' + sorted[sorted.length - 1].toFixed(1) + ' ms',
+						'worst (all)   ' + worst_ms.toFixed(1) + ' ms',
+						'frames        ' + total_frames,
+						'canvas        ' + canvasSize(),
+						'dpr           ' + (window.devicePixelRatio || 1),
+						'elapsed       ' + since_start_s.toFixed(0) + ' s'
+					];
+					box.textContent = lines.join('\n');
+					reported = true;
+				} else {
+					box.textContent = reported ? box.textContent
+						: 'frame timing: warming up (' + since_start_s.toFixed(0) + '/' + WARMUP_S + ' s)';
+				}
+				window_frames.length = 0;
+			}
+
+			requestAnimationFrame(sample);
+		}
+
+		function canvasSize() {
+			var c = document.getElementById('canvas') || document.querySelector('canvas');
+			if(!c) return 'no canvas';
+			return c.width + 'x' + c.height;
+		}
+
+		requestAnimationFrame(sample);
+	})();
+	</script>
+
+
 	</body>
 </html>
