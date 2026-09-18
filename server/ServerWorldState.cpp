@@ -88,7 +88,8 @@ AvatarRef ServerWorldState::createAndInsertAvatarForChatBot(ServerAllWorldsState
 
 
 ServerAllWorldsState::ServerAllWorldsState()
-:	lua_vms(/*empty key=*/UserID::invalidUserID())
+:	lua_vms(/*empty key=*/UserID::invalidUserID()),
+	chat_transcript_log(NULL)
 {
 	migration_version_info.migration_version = 0;
 

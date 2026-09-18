@@ -175,6 +175,7 @@ static ServerConfig parseServerConfig(const std::string& config_path)
 	config.log_chat_transcripts					= XMLParseUtils::parseBoolWithDefault(root_elem, "log_chat_transcripts", /*default val=*/true);
 	config.chat_transcript_dir					= XMLParseUtils::parseStringWithDefault(root_elem, "chat_transcript_dir", /*default val=*/"");
 	config.chat_transcript_retention_days		= XMLParseUtils::parseIntWithDefault(root_elem, "chat_transcript_retention_days", /*default val=*/0);
+	config.safety_urgent_user_message			= XMLParseUtils::parseStringWithDefault(root_elem, "safety_urgent_user_message", config.safety_urgent_user_message);
 
 	// Parse the optional <ai_models> section, which lets an operator add models - a locally hosted one, say - without
 	// needing a new build.  See AIModelConfig.
@@ -379,6 +380,7 @@ int main(int argc, char *argv[])
 			try
 			{
 				server.chat_transcript_log.open(transcript_dir, server.config.chat_transcript_retention_days);
+				server.world_state->chat_transcript_log = &server.chat_transcript_log; // Let the webserver show transcripts.
 			}
 			catch(glare::Exception& e)
 			{

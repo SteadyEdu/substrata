@@ -57,7 +57,9 @@ class ServerConfig
 {
 public:
 	ServerConfig() : allow_light_mapper_bot_full_perms(false), update_parcel_sales(false), do_lua_http_request_rate_limiting(true), enable_LOD_chunking(true), enable_registration(true), enable_mcp_server(true), do_mcp_rate_limiting(true),
-		log_chat_transcripts(true), chat_transcript_retention_days(0) {}
+		log_chat_transcripts(true), chat_transcript_retention_days(0),
+		safety_urgent_user_message("Thank you for telling me. What you said is important, so a trusted adult at your school "
+			"will see it and can help. If you are in danger right now, please tell an adult near you straight away.") {}
 	
 	std::string webserver_fragments_dir; // empty string = use default.
 	std::string webserver_public_files_dir; // empty string = use default.
@@ -93,6 +95,11 @@ public:
 	bool log_chat_transcripts;
 	std::string chat_transcript_dir;
 	int chat_transcript_retention_days; // 0 = keep transcripts forever, which is the default.
+
+	// Sent privately to a user whose message the safety check flagged as urgent, so they know a person will see it.
+	// Set it to the empty string to send nothing.  The default names no specific helpline, because the right number
+	// depends on the country and on what the school has arranged - set this for your deployment.
+	std::string safety_urgent_user_message;
 	std::string shared_LLM_prompt_part; // Default value = "You are a helpful bot in the Substrata Metaverse." etc..  See parseServerConfig in server.cpp for the default.
 };
 

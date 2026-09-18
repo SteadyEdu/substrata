@@ -20,6 +20,7 @@ Copyright Glare Technologies Limited 2021 -
 #include "ResourceHandlers.h"
 #include "PhotoHandlers.h"
 #include "ChatBotHandlers.h"
+#include "SafetyHandlers.h"
 #include "MCPHandlers.h"
 #include "SubEventHandlers.h"
 #if USE_GLARE_PARCEL_AUCTION_CODE
@@ -644,6 +645,14 @@ void WebServerRequestHandler::handleRequest(const web::RequestInfo& request, web
 		else if(request.path == "/edit_photo_parcel")
 		{
 			PhotoHandlers::renderEditPhotoParcelPage(*world_state, request, reply_info);
+		}
+		else if(request.path == "/safety_alerts")
+		{
+			SafetyHandlers::renderSafetyAlertsPage(*world_state, request, reply_info);
+		}
+		else if(request.path == "/chat_transcript")
+		{
+			SafetyHandlers::renderChatTranscriptPage(*world_state, request, reply_info);
 		}
 		else if(request.path == "/edit_chatbot")
 		{

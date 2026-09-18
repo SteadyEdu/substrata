@@ -9,6 +9,7 @@ Copyright Glare Technologies Limited 2023 -
 #include "AccountHandlers.h"
 #include "ServerLuaScriptTests.h"
 #include "AIModelRegistry.h"
+#include "SafetyClassifier.h"
 #include "SubEvent.h"
 #include "../shared/WorldObject.h"
 #include "../shared/RateLimiter.h"
@@ -105,6 +106,7 @@ void ServerTestSuite::test()
 
 	runTest([&]() { glare::testArray();													});
 	runTest([&]() { AIModelRegistry::test();											});
+	runTest([&]() { SafetyClassifier::test();											});
 	runTest([&]() { BasisDecoder::test();												});
 	runTest([&]() { WorldObject::test();												});
 	runTest([&]() { testLRUCache();														});

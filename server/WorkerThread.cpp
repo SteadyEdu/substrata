@@ -10,6 +10,7 @@ Copyright Glare Technologies Limited 2018 -
 #include "ObjectPermissions.h"
 #include "Server.h"
 #include "ChatTranscriptLog.h"
+#include "SafetyClassifier.h"
 #include "Screenshot.h"
 #include "SubEthTransaction.h"
 #include "MeshLODGenThread.h"
@@ -2802,6 +2803,7 @@ void WorkerThread::doRun()
 											transcript_record.is_private  = true;
 											transcript_record.from_bot    = false;
 											transcript_record.text        = msg;
+											transcript_record.safety      = SafetyClassifier::classify(msg);
 											break;
 										}
 									}
@@ -2840,7 +2842,30 @@ void WorkerThread::doRun()
 								} // End lock scope
 
 								if(msg_is_private)
+								{
 									server->chat_transcript_log.append(transcript_record);
+
+									if(transcript_record.safety.flagged)
+									{
+										conPrint("SAFETY: flagged message from user '" + client_user_name + "' to chatbot '" + transcript_record.bot_name +
+											"' (matched '" + transcript_record.safety.matched_phrase + "', urgent: " + boolToString(transcript_record.safety.urgent) + ")");
+
+										// Tell the user a person will see this.  Saying so plainly matters: a child who has just disclosed something
+										// should not be left believing they said it only to a machine.  The message is deliberately sent even though
+										// the model may also reply - the two are independent, and this one must not depend on the model working.
+										if(transcript_record.safety.urgent && !server->config.safety_urgent_user_message.empty())
+										{
+											MessageUtils::initPacket(scratch_packet, Protocol::ChatMessageID);
+											scratch_packet.writeStringLengthFirst("Safety");
+											scratch_packet.writeStringLengthFirst(server->config.safety_urgent_user_message);
+											writeToStream(UID::invalidUID(), scratch_packet); // Not from any avatar.
+											scratch_packet.writeUInt32(Protocol::CHAT_MESSAGE_FLAG_PRIVATE);
+											MessageUtils::updatePacketLengthField(scratch_packet);
+
+											enqueueDataToSend(scratch_packet);
+										}
+									}
+								}
 
 								// Send ChatMessageID packet
 								MessageUtils::initPacket(scratch_packet, Protocol::ChatMessageID);

@@ -40,6 +40,7 @@ Copyright Glare Technologies Limited 2024 -
 #include <unordered_set>
 class ServerWorldState;
 class ServerAllWorldsState;
+class ChatTranscriptLog;
 class WebDataStore;
 
 
@@ -465,6 +466,10 @@ public:
 
 	SimpleCredentials server_credentials;
 	ServerConfig server_config;
+
+	// Owned by the Server; borrowed here so the webserver can show transcripts to a teacher.  Set once at startup and
+	// outlives every request, so no locking is needed to read the pointer itself.  Null if logging is disabled.
+	ChatTranscriptLog* chat_transcript_log;
 
 	mutable ::WorldStateMutex mutex;
 private:

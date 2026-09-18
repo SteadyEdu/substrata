@@ -122,6 +122,8 @@ void renderUserAccountPage(ServerAllWorldsState& world_state, const web::Request
 
 		//-------------------------------- List chatbots owned/created by user --------------------------------
 		page += "<h2>ChatBots</h2>\n";
+		page += "<p><a href=\"/safety_alerts\">Review safety alerts</a> - messages from students to your chatbots that the "
+			"safety check flagged.</p>\n";
 		{
 			int num_chatbots = 0;
 			// Look through all chatbots in all worlds.  NOTE: slow

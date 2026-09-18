@@ -8,7 +8,9 @@ Copyright Glare Technologies Limited 2026 -
 
 #include "../shared/UID.h"
 #include "../shared/UserID.h"
+#include <vector>
 #include <Mutex.h>
+#include "SafetyClassifier.h"
 #include <Lock.h>
 #include <Platform.h>
 #include <string>
@@ -67,15 +69,50 @@ public:
 		bool is_private;
 		bool from_bot; // true: chatbot -> user.  false: user -> chatbot.
 		std::string text;
+
+		// Set for a user message that the safety check flagged.  A flagged record is written to the alerts file as well
+		// as the transcript, so a teacher can find the handful that need a look without reading everything.
+		SafetyClassifier::Result safety;
+	};
+
+
+	// One record read back from a transcript or alerts file, for showing to a person.
+	struct StoredRecord
+	{
+		StoredRecord() : bot_id(0), is_private(false), from_bot(false), urgent(false) {}
+
+		std::string time; // ISO 8601 UTC, as written.
+		std::string world_name;
+		uint64 bot_id;
+		std::string bot_name;
+		UID avatar_uid;
+		std::string avatar_name;
+		UserID user_id;
+		bool is_private;
+		bool from_bot;
+		bool urgent;
+		std::vector<std::string> safety_categories;
+		std::string matched_phrase;
+		std::string text;
 	};
 
 	// Threadsafe.  Does not throw.
 	void append(const Record& record);
 
+	// Read back flagged messages, newest first.  Threadsafe, does not throw; returns an empty vector on any problem.
+	std::vector<StoredRecord> readRecentAlerts(size_t max_records) const;
+
+	// Read back one conversation - all messages between a bot and a user's avatar - oldest first.
+	// Threadsafe, does not throw.
+	std::vector<StoredRecord> readConversation(uint64 bot_id, UID avatar_uid, size_t max_records) const;
+
 private:
 	GLARE_DISABLE_COPY(ChatTranscriptLog)
 
 	void openFileForDay(const std::string& day) REQUIRES(mutex); // Does not throw.
+	void writeLine(const std::string& line, const std::string& day, bool to_alerts_file) REQUIRES(mutex); // Does not throw.
+	std::vector<StoredRecord> readRecords(bool alerts, size_t max_records, uint64 filter_bot_id, UID filter_avatar_uid,
+		bool use_filter, bool newest_first) const; // Does not throw.
 	void deleteExpiredFiles() REQUIRES(mutex); // Does not throw.
 
 	mutable Mutex mutex;
@@ -83,5 +120,7 @@ private:
 	int retention_days		GUARDED_BY(mutex);
 	std::string cur_day		GUARDED_BY(mutex); // "YYYY-MM-DD" of the currently open file, or empty if none is open.
 	FileOutStream* file		GUARDED_BY(mutex);
+	std::string alerts_day	GUARDED_BY(mutex);
+	FileOutStream* alerts_file	GUARDED_BY(mutex); // Flagged messages only.
 	bool reported_error		GUARDED_BY(mutex); // Only complain to the console once, so a broken disk doesn't spam the log.
 };
