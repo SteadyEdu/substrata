@@ -397,6 +397,7 @@
 						'hitches       ' + hitches + '  (' +
 							((100 * hitches) / Math.max(1, total_frames)).toFixed(2) + '%)',
 						'paused        ' + gap_count + 'x, ' + (gap_total_ms / 1000).toFixed(1) + ' s',
+						timingLines(),
 						'canvas        ' + canvasSize() + (scale !== 1 ? '  (scale ' + scale + ')' : ''),
 						'dpr           ' + (window.devicePixelRatio || 1),
 						'frames        ' + total_frames,
@@ -407,6 +408,17 @@
 			}
 
 			requestAnimationFrame(sample);
+		}
+
+		// Published once a second by the client (publishFrameTimings in SDLClient.cpp).  "cpu" is everything
+		// before the draw and "gl" is the draw itself, so a cpu figure that does not move with resolution is
+		// the signature of a cost no amount of resolution reduction will remove.
+		function timingLines() {
+			var t = window.__substrata_frame_timings;
+			if(!t) return 'cpu/gl        (not reported yet)';
+			return 'cpu           ' + t.cpu_ms.toFixed(2) + ' ms\n' +
+			       'gl draw       ' + t.gl_ms.toFixed(2) + ' ms\n' +
+			       'client fps    ' + t.client_fps.toFixed(1);
 		}
 
 		function canvasSize() {

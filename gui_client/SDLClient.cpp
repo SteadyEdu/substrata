@@ -194,6 +194,15 @@ EM_JS(void, updateURL, (const char* new_URL), {
 	history.replaceState(null, "",  UTF8ToString(new_URL)); // See https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState
 });
 
+// Publish the frame time breakdown where the page can read it.
+//
+// The split between work done before the draw and the draw itself is what separates a frame limited by pixels
+// from one limited by work that happens whatever the resolution.  The info window shows both, but reading it on
+// a headset means aiming at a checkbox, so the numbers go to the page as well and the ?fps=1 overlay shows them.
+EM_JS(void, publishFrameTimings, (double cpu_ms, double gl_ms, double client_fps), {
+	window.__substrata_frame_timings = { cpu_ms: cpu_ms, gl_ms: gl_ms, client_fps: client_fps };
+});
+
 // Define getUserAgentString() function
 EM_JS(char*, getUserAgentString, (), {
 	return stringToNewUTF8(window.navigator.userAgent);
@@ -365,8 +374,13 @@ int main(int argc, char** argv)
 		}
 		conPrint("Graphics profile from URL: '" + gfx_profile + "'");
 
+		// ?gfx=min is ?gfx=low with shadow mapping off as well.  Shadow maps render at their own fixed
+		// resolution, so their cost does not fall when the canvas shrinks - which makes them the obvious
+		// suspect for any part of a frame that stays the same size whatever the resolution.
+		const bool minimal_gfx = (gfx_profile == "min");
+
 		// device_pixel_ratio > 1 is probably a mobile device
-		const bool low_memory_mode = (gfx_profile == "low") ||
+		const bool low_memory_mode = (gfx_profile == "low") || minimal_gfx ||
 			((gfx_profile != "high") && (device_pixel_ratio > 1.0));
 #else
 		const bool low_memory_mode = false;
@@ -520,7 +534,7 @@ int main(int argc, char** argv)
 		// Create OpenGL engine
 		OpenGLEngineSettings settings;
 		settings.compress_textures = true;
-		settings.shadow_mapping = true;
+		settings.shadow_mapping = !minimal_gfx;
 		settings.depth_fog = true;
 		settings.render_water_caustics = !low_memory_mode;
 		settings.msaa_samples = use_MSAA ? 4 : 1;
@@ -887,6 +901,13 @@ static uintptr_t last_dynamic_top = 0;
 static double last_timerEvent_CPU_work_elapsed = 0;
 double last_updateGL_time = 0;
 
+// Sums over the current reporting second, for the figures published to the page.  A single frame's timing is
+// quantised to about a millisecond, which is most of the value when the work itself takes one or two; averaging
+// over a second's worth of frames recovers the precision.
+static double cpu_time_sum = 0;
+static double gl_time_sum = 0;
+static int timing_sample_count = 0;
+
 static bool doing_cam_rotate_mouse_drag = false; // Is the mouse pointer hidden, and will moving the mouse rotate the camera?
 // TODO: replace with ui_interface->getCamRotationOnMouseDragEnabled
 
@@ -1196,6 +1217,14 @@ static void doOneMainLoopIter()
 		// conPrint("fps: " + doubleToStringNDecimalPlaces(fps, 1));
 		stats_timer->reset();
 		num_frames = 0;
+
+#if EMSCRIPTEN
+		if(timing_sample_count > 0)
+			publishFrameTimings((cpu_time_sum / timing_sample_count) * 1000, (gl_time_sum / timing_sample_count) * 1000, fps);
+#endif
+		cpu_time_sum = 0;
+		gl_time_sum = 0;
+		timing_sample_count = 0;
 	}
 
 #if TRACE_ALLOCATIONS
@@ -1207,6 +1236,8 @@ static void doOneMainLoopIter()
 #endif
 
 	last_timerEvent_CPU_work_elapsed = loop_iter_timer.elapsed(); // Everything before graphics draw
+	cpu_time_sum += last_timerEvent_CPU_work_elapsed;
+	timing_sample_count++;
 
 	Timer drawing_timer;
 
@@ -1288,6 +1319,7 @@ static void doOneMainLoopIter()
 	FrameMark; // Tracy profiler
 
 	last_updateGL_time = drawing_timer.elapsed();
+	gl_time_sum += last_updateGL_time;
 
 	time_since_last_frame->reset();
 

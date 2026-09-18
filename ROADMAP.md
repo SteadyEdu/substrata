@@ -129,9 +129,25 @@ WebXR
     term - the work would have to go into draw calls, culling and scene traversal instead, which is a much larger
     project than an XR render profile.
 
-    That fit is two data points, so it is a hypothesis and not yet a finding: a line through two points is exact
-    by construction.  Before acting on it, get more scale points and read ?diag=1, which shows main loop CPU time
-    against updateGL time directly.  If CPU time sits near 10 ms whatever the resolution, it is confirmed.
+    Two more scale points confirm it.  Four measurements at ?gfx=low, frame time against pixel count:
+
+        scale 1.5   2.42 Mpix   ~57 fps      17.5 ms
+        scale 2     4.31 Mpix   ~38 fps      26.3 ms
+        scale 2.5   6.73 Mpix   26-33 fps    33.9 ms
+        scale 3     9.69 Mpix   19-24 fps    46.5 ms
+
+        fit:  frame_ms = 8.5 + 3.9 * Mpix      R^2 = 0.996, residuals under 1 ms
+
+    So there really is a fixed 8.5 ms per frame that does not depend on resolution, against a 13.9 ms budget at
+    72 Hz.  That leaves 5.4 ms for pixels, or about 0.7 Mpix an eye - roughly 15% of what a Quest 3 asks for, a
+    framebuffer scale of 0.39.  Fill rate is therefore not the binding constraint any more and the per-pixel
+    levers - foveation, eye buffer scaling - cannot reach 72 Hz on their own.
+
+    8.5 ms of resolution-independent work on an empty world is not a plausible floor, though.  It is much more
+    likely to be something specific and fixable than an intrinsic cost, which makes finding it the first piece of
+    WebXR work rather than a reason to abandon the target.  The overlay now shows the split: cpu is everything
+    before the draw, gl draw is the draw itself.  Leading suspect is shadow mapping, which renders at its own
+    fixed resolution and so costs the same whatever the canvas size - ?gfx=min is ?gfx=low with it turned off.
 
 
 To offer upstream
