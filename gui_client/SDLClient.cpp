@@ -179,6 +179,14 @@ static bool sync_gl_for_timing = false;
 // ?stereo=1.  Draw the scene twice into one framebuffer, side by side.  See the loop in doOneMainLoopIter().
 static bool draw_stereo = false;
 
+// ?xrtest=1.  Paint the world's background bright red for the duration of a session.
+//
+// This separates the two things a black headset view cannot tell apart.  The engine clears the target itself, at
+// the start of its own draw, so if red arrives then the engine's output is reaching the compositor and whatever
+// is wrong is in the scene.  If it stays black then nothing the engine draws lands at all, whatever the camera
+// and the framebuffer binding say - which is a different fault in a different place.
+static bool xr_test_colour = false;
+
 #if EMSCRIPTEN
 // WebXR session state.  Set from JS in webclient.html, which owns the session itself: a session can only be
 // started from a user gesture, and the WebXR API is not exposed to Emscripten.
@@ -196,6 +204,7 @@ static bool client_low_memory_mode = false;
 static int client_msaa_samples = 1;
 static bool xr_saved_render_to_offscreen = false;
 static bool xr_saved_draw_overlays = true;
+static Colour3f xr_saved_background_colour(0.f);
 
 // Per-view data for a frame, written straight into wasm memory by the session code in webclient.html: sixteen
 // floats of projection, sixteen of the world-to-view transform, then four of viewport.  Passing it through a
@@ -451,6 +460,10 @@ int main(int argc, char** argv)
 				const auto stereo_res = gfx_queries.find("stereo");
 				if((stereo_res != gfx_queries.end()) && (stereo_res->second == "1"))
 					draw_stereo = true;
+
+				const auto xrtest_res = gfx_queries.find("xrtest");
+				if((xrtest_res != gfx_queries.end()) && (xrtest_res->second == "1"))
+					xr_test_colour = true;
 			}
 		}
 		conPrint("Graphics profile from URL: '" + gfx_profile + "'");
@@ -1573,6 +1586,12 @@ void xrSessionStarted(unsigned int framebuffer_name, int fb_width, int fb_height
 	xr_saved_draw_overlays = scene->draw_overlay_objects;
 	scene->draw_overlay_objects = false;
 
+	if(xr_test_colour)
+	{
+		xr_saved_background_colour = scene->background_colour;
+		scene->background_colour = Colour3f(1.f, 0.f, 0.f);
+	}
+
 	emscripten_cancel_main_loop(); // Stop the page's frame loop.  The session drives frames from now on.
 }
 
@@ -1604,6 +1623,20 @@ void xrFrame(int num_views)
 	}
 	else
 	{
+		// ?xrtest=1 paints the whole framebuffer blue here, before the engine touches it, while the world's
+		// background is set to red for the session.  What comes back names the fault:
+		//
+		//   the world   everything works
+		//   red         the engine's clear lands but its geometry does not
+		//   blue        nothing the engine does lands, though a direct clear from here does
+		//   black       not even a direct clear lands, and phase one's result no longer holds
+		if(xr_test_colour)
+		{
+			emscripten_glViewport(0, 0, xr_framebuffer_w, xr_framebuffer_h);
+			emscripten_glClearColor(0.f, 0.f, 1.f, 1.f);
+			emscripten_glClear(GL_COLOR_BUFFER_BIT);
+		}
+
 		const int use_num_views = myMin(num_views, XR_MAX_VIEWS);
 
 		try
@@ -1750,6 +1783,8 @@ void xrSessionEnded()
 	OpenGLScene* scene = opengl_engine->getCurrentScene();
 	scene->render_to_main_render_framebuffer = xr_saved_render_to_offscreen;
 	scene->draw_overlay_objects = xr_saved_draw_overlays;
+	if(xr_test_colour)
+		scene->background_colour = xr_saved_background_colour;
 	opengl_engine->setViewportDims(opengl_engine->getViewPortWidth(), opengl_engine->getViewPortHeight()); // Clears the offset.
 	opengl_engine->setViewIndexInFrame(0);
 
