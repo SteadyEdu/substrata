@@ -179,10 +179,31 @@ WebXR
     Neither binding the target as FRAMEBUFFER rather than DRAW_FRAMEBUFFER, nor forcing alpha to one, nor
     turning off the layer's antialiasing, nor bypassing the offscreen path made any difference.
 
-    Next, without needing anyone in a headset: cut down draw() until the session survives it - the simplest
-    possible draw against the same context and session, then add passes back.  The context is created by SDL with
-    antialias on and a thirty-thread pool, which is the remaining thing that differs from the JavaScript that
-    does display correctly.
+    Bisecting on the device narrowed it further, and left one contradiction that has to be resolved before any
+    more guessing.  Each of these was checked with its preconditions verified in the same page load, after two
+    earlier results turned out to be instrument failures - a stale framebuffer from a previous session, and a
+    shader program destroyed by a rebuild:
+
+      * A triangle drawn from JavaScript into the session's framebuffer displays.  Drawing works.
+      * It still displays with Emscripten's main loop cancelled, which is what _xrSessionStarted does.
+      * It stops displaying under a GREATER depth test against a depth buffer cleared to zero - the engine's
+        reverse-z configuration.  So the session's depth buffer does not honour that clear.
+      * Turning reverse-z off for the session did not make the world appear.
+      * Forcing the depth test off for every engine draw did not make it appear either.
+      * After the engine draws, the same triangle no longer displays, with the correct live framebuffer bound and
+        the program verified present.  Yet GL state read immediately after the engine draws is clean: framebuffer
+        complete and bound to the live layer, COLOR_ATTACHMENT0 as the draw buffer, colour mask on, scissor and
+        rasterizer discard off, no GL errors.
+
+    So drawing works until the engine draws, and afterwards nothing draws - with no state that accounts for it.
+    One of those observations has a qualifier that has not been found yet.
+
+    The next step is a minimal case rather than more bisection of a large one: an Emscripten program that creates
+    a context the way this client does, enters a session, and draws one triangle.  If that fails, the cause is in
+    how the context is made - SDL creates it with antialias on and a thirty-thread pool - and it can be chased
+    without this codebase in the way.  If it succeeds, add the engine to it a pass at a time.
+
+    scripts/quest_devtools.py drives all of this over adb, so most of it needs no one in a headset.
 
     Phase 1 is done: an Enter VR button, a session, its frame loop driving the client, and a clean exit.  The
     framebuffer handover - the risk everything else rested on - works: a JavaScript WebGLFramebuffer registered

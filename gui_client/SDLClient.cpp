@@ -211,6 +211,7 @@ static bool client_low_memory_mode = false;
 static int client_msaa_samples = 1;
 static bool xr_saved_render_to_offscreen = false;
 static bool xr_saved_draw_overlays = true;
+static bool xr_saved_reverse_z = true;
 static Colour3f xr_saved_background_colour(0.f);
 
 // Per-view data for a frame, written straight into wasm memory by the session code in webclient.html: sixteen
@@ -1661,6 +1662,19 @@ void xrSessionStarted(unsigned int framebuffer_name, int fb_width, int fb_height
 	xr_saved_draw_overlays = scene->draw_overlay_objects;
 	scene->draw_overlay_objects = false;
 
+	// Turn reverse-z off for the session.
+	//
+	// Reverse-z depends on clearing the depth buffer to zero and testing with GREATER.  A WebXR session's
+	// framebuffer does not honour that clear: the runtime clears its depth to one at the start of each frame and
+	// a clear to zero from here does not take, so every fragment fails the test and the world renders black -
+	// with no GL error, correct output when the same frame is drawn into an ordinary framebuffer, and colour
+	// clears working perfectly.  Demonstrated directly on the headset: a triangle at depth 0.5 draws with the
+	// depth test off, and disappears with GREATER against a depth buffer cleared to zero.
+	//
+	// Conventional depth agrees with what the runtime leaves in the buffer, so it simply works.
+	xr_saved_reverse_z = opengl_engine->use_reverse_z;
+	opengl_engine->use_reverse_z = false;
+
 	if(xr_test_colour)
 	{
 		xr_saved_background_colour = scene->background_colour;
@@ -1884,6 +1898,7 @@ void xrSessionEnded()
 	OpenGLScene* scene = opengl_engine->getCurrentScene();
 	scene->render_to_main_render_framebuffer = xr_saved_render_to_offscreen;
 	scene->draw_overlay_objects = xr_saved_draw_overlays;
+	opengl_engine->use_reverse_z = xr_saved_reverse_z;
 	if(xr_test_colour)
 		scene->background_colour = xr_saved_background_colour;
 	opengl_engine->setViewportDims(opengl_engine->getViewPortWidth(), opengl_engine->getViewPortHeight()); // Clears the offset.
