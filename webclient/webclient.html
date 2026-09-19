@@ -519,6 +519,12 @@
 
 				var session = await navigator.xr.requestSession('immersive-vr');
 
+				// Hold on to it immediately.  Everything below can fail, and a session that has been granted but
+				// not recorded is one nobody can end: it stays live with no frame loop driving it, which in a
+				// headset is a black world with no way out short of reloading the page.
+				xrSession = session;
+				session.addEventListener('end', onSessionEnded);
+
 				// ?xrscale=N asks the runtime for a framebuffer N times the native linear resolution.  This is
 				// the main lever on cost: the frame's pixel count goes as the square of it, and at native
 				// resolution this scene does not come close to the frame budget.
@@ -542,9 +548,15 @@
 				var rateMatch = /[?&]xrrate=([0-9.]+)/.exec(search);
 				var wantRate = rateMatch ? parseFloat(rateMatch[1]) : 0;
 				var rates = session.supportedFrameRates ? Array.from(session.supportedFrameRates) : [];
+				// Deliberately not awaited.  On a Quest this promise can simply never settle, and awaiting it hangs
+				// the rest of the setup - leaving a session that has been granted but never driven, which is a
+				// black headset.  The rate is a preference, not something to block on.
 				if(wantRate && session.updateTargetFrameRate && rates.indexOf(wantRate) !== -1) {
-					try { await session.updateTargetFrameRate(wantRate); }
-					catch(e) { console.warn('WebXR: could not set frame rate', wantRate, e); }
+					try {
+						var ratePromise = session.updateTargetFrameRate(wantRate);
+						if(ratePromise && ratePromise.catch) ratePromise.catch(function(e){ console.warn('WebXR: frame rate refused', wantRate, e); });
+					}
+					catch(e) { console.warn('WebXR: could not ask for frame rate', wantRate, e); }
 				}
 
 				// Kept apart from the statistics the client publishes, which it overwrites each frame.
@@ -566,9 +578,6 @@
 				layer.framebuffer.name = fbName;
 				GL.framebuffers[fbName] = layer.framebuffer;
 
-				xrSession = session;
-				session.addEventListener('end', onSessionEnded);
-
 				if(typeof Module._xrViewBuffer !== 'function')
 					throw new Error('_xrViewBuffer is not exported - the frame loop cannot pass views to the client');
 				if(!Module.HEAPF32)
@@ -582,8 +591,13 @@
 			}
 			catch(err) {
 				console.error('WebXR: could not start a session:', err);
+				window.__substrata_xr_error = 'starting a session: ' + (err && err.message ? err.message : String(err));
 				setStatus('VR failed - see console', true);
+
+				// End it rather than leave it live and undriven.
+				if(xrSession) { try { xrSession.end(); } catch(e) {} }
 				xrSession = null;
+				xrRefSpace = null;
 			}
 		}
 

@@ -179,10 +179,29 @@ WebXR
     substituting a readable framebuffer behind the same GL name to prove the engine's output was correct, drawing
     a triangle from JavaScript to prove drawing and presentation worked, and tracing every framebuffer call.
 
-    First measurement with the world actually rendering: 46.6 fps at full native 3360x1760, gfx=min.  Every
-    earlier figure - the 79 to 86 fps - was a renderer discarding its own output, so those do not count.  72 Hz
-    now needs roughly a third off the frame, which is what xrscale is for, and finding the usable combination of
-    resolution and refresh is the next measurement rather than the next guess.
+    Measured on the headset with the world actually rendering, gfx=min, 72 Hz requested, framebuffer scale swept:
+
+        scale   framebuffer   per eye      fps
+        1.00    3360x1760     1680x1760    48.2
+        0.85    2856x1496     1428x1496    52.3
+        0.70    2352x1232     1176x1232    58.0
+        0.65    2184x1144     1092x1144    71.8
+        0.60    2016x1056     1008x1056    72.0
+
+    So 72 Hz holds at a framebuffer scale around 0.65, which is 1092x1144 an eye - about 42% of the pixels the
+    runtime asks for.  Runs vary by a few fps, so treat the knee as approximate rather than exact: a repeat at
+    0.55 gave 68.9 where an earlier one gave 72.0.
+
+    That is better than the 11 to 28% the 2D panel measurements predicted, and it is a usable headset image.
+
+    The shape of the frame has changed, though.  Fitting frame time against pixel count gives roughly 12 ms that
+    does not depend on resolution at all, against a 13.9 ms budget at 72 Hz.  Resolution is therefore no longer
+    the lever it was - going from native to 0.55 scale, a 70% cut in pixels, bought about 24 fps, and everything
+    below that buys very little.  What is left is per-frame and per-view cost, which is what multiview addresses:
+    one pass over the scene rather than two.  That is the next thing worth doing for performance, ahead of any
+    further resolution work.
+
+    Note also that this is gfx=min, which has no shadows.  Turning those back on will cost some of the headroom.
 
     Phase 1 is done: an Enter VR button, a session, its frame loop driving the client, and a clean exit.  The
     framebuffer handover - the risk everything else rested on - works: a JavaScript WebGLFramebuffer registered
