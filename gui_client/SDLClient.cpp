@@ -1650,6 +1650,11 @@ void xrSessionStarted(unsigned int framebuffer_name, int fb_width, int fb_height
 	xr_target_framebuffer = new FrameBuffer(xr_render_target_name);
 	opengl_engine->setTargetFrameBuffer(xr_target_framebuffer);
 
+	// The session's framebuffer is default-like: its colour output is not COLOR_ATTACHMENT0, and naming that as
+	// the draw buffer stops it accepting colour at all.  A framebuffer of our own, as ?xrblit=1 uses, is an
+	// ordinary one and does use attachments.
+	opengl_engine->setTargetFrameBufferUsesAttachments(xr_use_blit);
+
 	OpenGLScene* scene = opengl_engine->getCurrentScene();
 
 	// Both eyes share one framebuffer, which rules out the offscreen render path: that buffer is allocated at
@@ -1893,6 +1898,7 @@ void xrSessionEnded()
 	xr_framebuffer_name = 0;
 
 	opengl_engine->setTargetFrameBuffer(NULL); // Back to the page's canvas.
+	opengl_engine->setTargetFrameBufferUsesAttachments(true);
 	xr_target_framebuffer = NULL;
 
 	OpenGLScene* scene = opengl_engine->getCurrentScene();

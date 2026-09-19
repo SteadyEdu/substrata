@@ -156,54 +156,33 @@ WebXR
     With the viewport offset and the per-frame clear already done, glare-core may need no further changes at all.
     What is left is the client and a JS shim.
 
-    Phase 2 renders correctly and does not display.  This is the open problem.
+    Phase 2 works: the world in stereo, head tracked, on the headset.
 
-    What is established, by driving the headset's browser directly over adb rather than by inference:
+    The bug that held it up was one call.  The engine set COLOR_ATTACHMENT0 as the draw buffer on the session's
+    framebuffer, which is opaque and behaves like the default framebuffer - its colour output is BACK, and naming
+    an attachment on a Quest raises no error but stops the framebuffer accepting colour for the rest of the
+    session.  The engine already declines to set a draw buffer on the default framebuffer for exactly this
+    reason; the XR target needed the same treatment, which is what setTargetFrameBufferUsesAttachments() is for.
 
-      * The engine's output is correct.  Substituting a readable framebuffer for the session's, behind the same
-        GL name, and reading it back gives proper stereo - sky above, ground below, the two eyes differing,
-        alpha 255 throughout.
-      * The client binds the session's own live framebuffer, with a correct camera, no GL errors, and a single
-        render pass at 79-86 fps at full native 3360x1760.
-      * The session and its setup are fine: painting a solid colour from a callback of our own, on the page's own
-        session, displays correctly.
-      * Cancelling Emscripten's main loop is harmless - a session keeps displaying after it.
-      * Nothing illegal appears in a device trace of a frame: no drawBuffers, no reads, no blits, no invalidates.
+    It took far longer than it should have, and the reasons are worth keeping:
 
-    And what actually happens: a session displays a plain clear, and stops displaying anything from the first
-    frame opengl_engine->draw() runs - permanently, for the rest of that session.  Alternating between a clear
-    and the world three seconds apart shows blue once and then black for good.  Drawing into a framebuffer of our
-    own and copying the result across does not help either, so it is not about what the session's framebuffer
-    receives; the act of the engine drawing at all disables the session's display.
+      * Six wrong explanations were shipped before the right one - the framebuffer binding, alpha, the layer's
+        antialiasing, any draw poisoning the session, draw() breaking presentation, and depth.
+      * Two results were the instrument failing rather than evidence: a framebuffer left over from a previous
+        session, and a shader program destroyed by a rebuild.  Both produced the exact symptom being hunted.
+        Tests now report whether their own preconditions hold.
+      * adb screencap shows stale frames for immersive content and cannot be trusted at all.
+      * The trace that found it had been run before and missed it, because the log was capped at sixty entries
+        and filled entirely with bindFramebuffer.
 
-    Neither binding the target as FRAMEBUFFER rather than DRAW_FRAMEBUFFER, nor forcing alpha to one, nor
-    turning off the layer's antialiasing, nor bypassing the offscreen path made any difference.
+    What actually worked was driving the headset's browser over adb and bisecting against observation:
+    substituting a readable framebuffer behind the same GL name to prove the engine's output was correct, drawing
+    a triangle from JavaScript to prove drawing and presentation worked, and tracing every framebuffer call.
 
-    Bisecting on the device narrowed it further, and left one contradiction that has to be resolved before any
-    more guessing.  Each of these was checked with its preconditions verified in the same page load, after two
-    earlier results turned out to be instrument failures - a stale framebuffer from a previous session, and a
-    shader program destroyed by a rebuild:
-
-      * A triangle drawn from JavaScript into the session's framebuffer displays.  Drawing works.
-      * It still displays with Emscripten's main loop cancelled, which is what _xrSessionStarted does.
-      * It stops displaying under a GREATER depth test against a depth buffer cleared to zero - the engine's
-        reverse-z configuration.  So the session's depth buffer does not honour that clear.
-      * Turning reverse-z off for the session did not make the world appear.
-      * Forcing the depth test off for every engine draw did not make it appear either.
-      * After the engine draws, the same triangle no longer displays, with the correct live framebuffer bound and
-        the program verified present.  Yet GL state read immediately after the engine draws is clean: framebuffer
-        complete and bound to the live layer, COLOR_ATTACHMENT0 as the draw buffer, colour mask on, scissor and
-        rasterizer discard off, no GL errors.
-
-    So drawing works until the engine draws, and afterwards nothing draws - with no state that accounts for it.
-    One of those observations has a qualifier that has not been found yet.
-
-    The next step is a minimal case rather than more bisection of a large one: an Emscripten program that creates
-    a context the way this client does, enters a session, and draws one triangle.  If that fails, the cause is in
-    how the context is made - SDL creates it with antialias on and a thirty-thread pool - and it can be chased
-    without this codebase in the way.  If it succeeds, add the engine to it a pass at a time.
-
-    scripts/quest_devtools.py drives all of this over adb, so most of it needs no one in a headset.
+    First measurement with the world actually rendering: 46.6 fps at full native 3360x1760, gfx=min.  Every
+    earlier figure - the 79 to 86 fps - was a renderer discarding its own output, so those do not count.  72 Hz
+    now needs roughly a third off the frame, which is what xrscale is for, and finding the usable combination of
+    resolution and refresh is the next measurement rather than the next guess.
 
     Phase 1 is done: an Enter VR button, a session, its frame loop driving the client, and a clean exit.  The
     framebuffer handover - the risk everything else rested on - works: a JavaScript WebGLFramebuffer registered
