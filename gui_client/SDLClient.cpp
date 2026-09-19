@@ -223,6 +223,8 @@ extern "C" void emscripten_glClear(unsigned int mask);
 extern "C" void emscripten_glViewport(int x, int y, int w, int h);
 extern "C" unsigned int emscripten_glGetError(void);
 extern "C" void emscripten_glGetIntegerv(unsigned int pname, int* params);
+extern "C" void emscripten_glColorMask(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
+extern "C" void emscripten_glDisable(unsigned int cap);
 #endif
 #if EMSCRIPTEN
 extern "C" void emscripten_glFinish(void);
@@ -1742,10 +1744,19 @@ void xrFrame(int num_views)
 				publishXRDebug(msg.c_str());
 			}
 
-			// Leave the session's framebuffer bound when the frame callback returns.  The engine moves the
-			// binding around during a frame, and not every implementation is relaxed about what is bound at the
-			// end of an XR frame.
+			// Force alpha to one across the whole framebuffer.
+			//
+			// A headset compositor reads the alpha channel; a canvas on a page largely does not, which is why a
+			// scene that looks right in the browser can arrive in a headset as nothing at all.  The engine
+			// leaves alpha wherever its materials happened to put it, so rather than trust that, set it.
+			// Colour is masked off, so this touches nothing that was drawn.
 			emscripten_glBindFramebuffer(GL_FRAMEBUFFER, xr_framebuffer_name);
+			emscripten_glDisable(GL_SCISSOR_TEST);
+			emscripten_glViewport(0, 0, xr_framebuffer_w, xr_framebuffer_h);
+			emscripten_glColorMask(0, 0, 0, 1);
+			emscripten_glClearColor(0.f, 0.f, 0.f, 1.f);
+			emscripten_glClear(GL_COLOR_BUFFER_BIT);
+			emscripten_glColorMask(1, 1, 1, 1);
 		}
 		catch(glare::Exception& e)
 		{
