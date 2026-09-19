@@ -1665,15 +1665,25 @@ void xrFrame(int num_views)
 			// A GL error inside a session is otherwise completely silent: the draw simply does not land and the
 			// headset shows black, which is what an empty framebuffer looks like too.  Report the codes raised
 			// by this frame's drawing, now that the pre-existing ones have been drained.
-			unsigned int first_err = 0, err_count = 0, e;
+			// Every distinct code, not just the first.  Reporting only the first hid anything that followed
+			// behind the INVALID_ENUM the engine raises every frame regardless - which is exactly the sort of
+			// thing that would be masking the real fault here.
+			unsigned int codes[8]; int code_counts[8]; int num_codes = 0;
+			unsigned int e; int total = 0;
 			while((e = emscripten_glGetError()) != 0)
 			{
-				if(first_err == 0) first_err = e;
-				if(++err_count > 64) break;
+				bool found = false;
+				for(int i=0; i<num_codes; ++i)
+					if(codes[i] == e) { code_counts[i]++; found = true; break; }
+				if(!found && (num_codes < 8)) { codes[num_codes] = e; code_counts[num_codes] = 1; num_codes++; }
+				if(++total > 256) break;
 			}
-			if(first_err != 0)
+			if(num_codes > 0)
 			{
-				const std::string msg = "GL error " + toString(first_err) + " drawing a view (" + toString(err_count) + " this frame)";
+				std::string msg = "GL errors drawing views:";
+				for(int i=0; i<num_codes; ++i)
+					msg += " " + toString(codes[i]) + "x" + toString(code_counts[i]);
+				msg += "  (1280 x2 is expected: activeTexture past the unit limit)";
 				publishXRError(msg.c_str());
 			}
 
