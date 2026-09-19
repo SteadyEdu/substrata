@@ -212,6 +212,7 @@ extern "C" void emscripten_glBindFramebuffer(unsigned int target, unsigned int f
 extern "C" void emscripten_glClearColor(float r, float g, float b, float a);
 extern "C" void emscripten_glClear(unsigned int mask);
 extern "C" void emscripten_glViewport(int x, int y, int w, int h);
+extern "C" unsigned int emscripten_glGetError(void);
 #endif
 #if EMSCRIPTEN
 extern "C" void emscripten_glFinish(void);
@@ -1593,6 +1594,11 @@ void xrFrame(int num_views)
 	{
 		const int use_num_views = myMin(num_views, XR_MAX_VIEWS);
 
+		// Drain whatever is already pending before drawing.  The engine raises an INVALID_ENUM every frame in
+		// ordinary rendering too - harmless against the page's canvas - and reporting that would bury a real
+		// error rather than reveal one.
+		while(emscripten_glGetError() != 0) {}
+
 		try
 		{
 
@@ -1647,6 +1653,21 @@ void xrFrame(int num_views)
 				/*lens shift up=*/unit_shift_up * lens_sensor_dist, /*lens shift right=*/unit_shift_right * lens_sensor_dist);
 
 			opengl_engine->draw();
+			}
+
+			// A GL error inside a session is otherwise completely silent: the draw simply does not land and the
+			// headset shows black, which is what an empty framebuffer looks like too.  Report the codes raised
+			// by this frame's drawing, now that the pre-existing ones have been drained.
+			unsigned int first_err = 0, err_count = 0, e;
+			while((e = emscripten_glGetError()) != 0)
+			{
+				if(first_err == 0) first_err = e;
+				if(++err_count > 64) break;
+			}
+			if(first_err != 0)
+			{
+				const std::string msg = "GL error " + toString(first_err) + " drawing a view (" + toString(err_count) + " this frame)";
+				publishXRError(msg.c_str());
 			}
 		}
 		catch(glare::Exception& e)

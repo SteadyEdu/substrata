@@ -525,7 +525,10 @@
 				var scaleMatch = /[?&]xrscale=([0-9.]+)/.exec(search);
 				var fbScale = scaleMatch ? parseFloat(scaleMatch[1]) : 1.0;
 
-				var layerOpts = {};
+				// The layer is antialiased by default, which makes its framebuffer multisampled - extra cost we
+				// have not budgeted for, and one more difference between the session's framebuffer and an
+				// ordinary one.  Off unless ?xraa=1 asks for it.
+				var layerOpts = { antialias: /[?&]xraa=1(?:&|$)/.test(search) };
 				if(fbScale !== 1.0 && fbScale > 0)
 					layerOpts.framebufferScaleFactor = fbScale;
 
