@@ -220,6 +220,24 @@ Two things make this go wrong in ways that are hard to read:
 	where san.cnf carries [alt] with DNS:localhost and an IP entry per address.  The server reads the keypair at
 	startup, so restart it afterwards.
 
+Debugging the client on the headset itself
+------------------------------------------
+Everything about a headset that matters - whether a draw landed, what the GL state is, what the console said -
+is invisible from the machine serving the page, and reading numbers off an overlay after taking the headset off
+is a slow way to find anything.  Four rounds of that failed to identify why stereo rendered black.
+
+scripts/quest_devtools.py connects to the Chrome DevTools endpoint the Quest browser exposes over adb:
+
+	brew install --cask android-platform-tools
+	python3 scripts/quest_devtools.py targets              # pages the headset has open
+	python3 scripts/quest_devtools.py eval "<expression>"  # run JavaScript in the client's page
+	python3 scripts/quest_devtools.py console              # watch console output live
+
+The headset needs developer mode, which is turned on per device in the Meta Horizon phone app and needs the
+account to belong to a developer organisation.  Then connect it by USB, put it on, and accept the "Allow USB
+debugging" prompt - the prompt appears inside the headset, so it has to be worn to be answered.
+
+
 Measuring frame rate there
 --------------------------
 Add ?fps=1 to the URL for an on-screen overlay of frame timings, sampled from the requestAnimationFrame callback
