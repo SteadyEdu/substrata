@@ -124,8 +124,11 @@ def connect():
 def evaluate(expr):
     ws, page = connect()
     ws.send({"id": 1, "method": "Runtime.enable"})
+    # userGesture grants transient activation, so things that require a user action - starting an XR session,
+    # above all - can be driven from here instead of asking someone to look at a button and press it.
     ws.send({"id": 2, "method": "Runtime.evaluate",
-             "params": {"expression": expr, "returnByValue": True, "awaitPromise": True}})
+             "params": {"expression": expr, "returnByValue": True, "awaitPromise": True,
+                        "userGesture": True}})
     while True:
         msg = ws.recv()
         if msg.get("id") == 2:

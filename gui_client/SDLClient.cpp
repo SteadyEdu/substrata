@@ -187,6 +187,12 @@ static bool draw_stereo = false;
 // and the framebuffer binding say - which is a different fault in a different place.
 static bool xr_test_colour = false;
 
+// ?xralt=1.  Alternate between a plain clear and drawing the world, three seconds each.
+static bool xr_alternate = false;
+
+// ?xrblit=1.  Draw into a framebuffer of our own and copy it across, rather than drawing into the session's.
+static bool xr_use_blit = false;
+
 #if EMSCRIPTEN
 // WebXR session state.  Set from JS in webclient.html, which owns the session itself: a session can only be
 // started from a user gesture, and the WebXR API is not exposed to Emscripten.
@@ -196,6 +202,7 @@ static int xr_framebuffer_w = 0, xr_framebuffer_h = 0;
 static int xr_frames = 0;
 static int xr_last_num_views = 0;
 static Reference<FrameBuffer> xr_target_framebuffer;
+static unsigned int xr_render_target_name = 0; // Our own framebuffer, which the engine draws into.
 
 // Whether the client started in the cheap render profile.  A headset needs it, and the guess that picks it -
 // a device pixel ratio above 1 - is wrong on a Quest, which reports exactly 1.  Recorded so a session can say
@@ -267,6 +274,53 @@ EM_JS(void, updateURL, (const char* new_URL), {
 // a headset means aiming at a checkbox, so the numbers go to the page as well and the ?fps=1 overlay shows them.
 EM_JS(void, publishFrameTimings, (double cpu_ms, double gl_ms, double client_fps), {
 	window.__substrata_frame_timings = { cpu_ms: cpu_ms, gl_ms: gl_ms, client_fps: client_fps };
+});
+
+// Render into a framebuffer of our own and copy the result into the session's.
+//
+// The engine's output is correct - it can be read back from an ordinary framebuffer and shows proper stereo -
+// but drawing directly into the session's framebuffer stops the compositor presenting anything at all, and does
+// so permanently: a plain clear presents until the first frame the engine draws, and never again afterwards.
+// Nothing illegal shows up in a trace of the frame and no GL error is raised.
+//
+// So the engine is kept away from it.  It draws into a framebuffer we own, which behaves like any other, and a
+// single blit copies that across at the end of the frame.  The cost is one full-screen copy; the benefit is that
+// the opaque framebuffer is only ever written by one operation whose behaviour is not in doubt.
+//
+// These are written in JS because creating a framebuffer and registering it in Emscripten's object table is
+// already JS work, and doing the blit here too keeps the whole arrangement in one place.
+EM_JS(int, createXRRenderTarget, (int w, int h), {
+	var gl = GLctx;
+	var tex = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_2D, tex);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+	var depth = gl.createRenderbuffer();
+	gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+	gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+
+	var fb = gl.createFramebuffer();
+	gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+	gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+	var ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	if(!ok) return 0;
+
+	var id = GL.getNewId(GL.framebuffers);
+	fb.name = id;
+	GL.framebuffers[id] = fb;
+	return id;
+});
+
+EM_JS(void, blitXRRenderTarget, (int src_name, int dst_name, int w, int h), {
+	var gl = GLctx;
+	gl.bindFramebuffer(gl.READ_FRAMEBUFFER, GL.framebuffers[src_name]);
+	gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, GL.framebuffers[dst_name]);
+	gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+	gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
 });
 
 // Publish WebXR session statistics where the flat page can show them.  A headset is not a place to read a
@@ -466,6 +520,14 @@ int main(int argc, char** argv)
 				const auto xrtest_res = gfx_queries.find("xrtest");
 				if((xrtest_res != gfx_queries.end()) && (xrtest_res->second == "1"))
 					xr_test_colour = true;
+
+				const auto xralt_res = gfx_queries.find("xralt");
+				if((xralt_res != gfx_queries.end()) && (xralt_res->second == "1"))
+					xr_alternate = true;
+
+				const auto xrblit_res = gfx_queries.find("xrblit");
+				if((xrblit_res != gfx_queries.end()) && (xrblit_res->second == "1"))
+					xr_use_blit = true;
 			}
 		}
 		conPrint("Graphics profile from URL: '" + gfx_profile + "'");
@@ -1573,7 +1635,18 @@ void xrSessionStarted(unsigned int framebuffer_name, int fb_width, int fb_height
 
 	// Wrap the session's framebuffer so the engine draws into it.  FrameBuffer's GLuint constructor does not
 	// take ownership, which is what is wanted here: the framebuffer belongs to the session.
-	xr_target_framebuffer = new FrameBuffer(framebuffer_name);
+	// ?xrblit=1 only.  It does not fix the black view - draw() disables the session's presentation wherever it
+	// draws, including into a framebuffer of our own - so it costs a full-screen copy for nothing and is kept
+	// only because it isolates the engine from the session's framebuffer, which is worth having while the cause
+	// is still open.
+	xr_render_target_name = xr_use_blit ? (unsigned int)createXRRenderTarget(fb_width, fb_height) : framebuffer_name;
+	if(xr_use_blit && xr_render_target_name == 0)
+	{
+		publishXRError("could not create a render target for the session");
+		xr_render_target_name = framebuffer_name; // Fall back to drawing straight into the session's.
+	}
+
+	xr_target_framebuffer = new FrameBuffer(xr_render_target_name);
 	opengl_engine->setTargetFrameBuffer(xr_target_framebuffer);
 
 	OpenGLScene* scene = opengl_engine->getCurrentScene();
@@ -1639,7 +1712,20 @@ void xrFrame(int num_views)
 			emscripten_glClear(GL_COLOR_BUFFER_BIT);
 		}
 
-		const int use_num_views = myMin(num_views, XR_MAX_VIEWS);
+		// ?xralt=1 alternates every three seconds between clearing the framebuffer to blue and drawing the
+		// world, so a single look says which of the two the compositor is willing to present.  Phase one, which
+		// only ever cleared, did present; the world does not; this puts both in one session with nothing else
+		// changing between them.
+		const bool clear_only_now = xr_alternate && (((int)(xr_timer ? xr_timer->elapsed() : 0.0) / 3) % 2 == 0);
+		if(clear_only_now)
+		{
+			emscripten_glBindFramebuffer(GL_FRAMEBUFFER, xr_framebuffer_name);
+			emscripten_glViewport(0, 0, xr_framebuffer_w, xr_framebuffer_h);
+			emscripten_glClearColor(0.f, 0.3f, 1.f, 1.f);
+			emscripten_glClear(GL_COLOR_BUFFER_BIT);
+		}
+
+		const int use_num_views = clear_only_now ? 0 : myMin(num_views, XR_MAX_VIEWS);
 
 		try
 		{
@@ -1743,6 +1829,10 @@ void xrFrame(int num_views)
 					" fwd " + doubleToStringNDecimalPlaces(cam_fwd[0], 2) + "," + doubleToStringNDecimalPlaces(cam_fwd[1], 2) + "," + doubleToStringNDecimalPlaces(cam_fwd[2], 2);
 				publishXRDebug(msg.c_str());
 			}
+
+			// Copy what the engine drew into the session's framebuffer.
+			if(xr_render_target_name != xr_framebuffer_name)
+				blitXRRenderTarget(xr_render_target_name, xr_framebuffer_name, xr_framebuffer_w, xr_framebuffer_h);
 
 			// Force alpha to one across the whole framebuffer.
 			//

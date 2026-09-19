@@ -156,6 +156,34 @@ WebXR
     With the viewport offset and the per-frame clear already done, glare-core may need no further changes at all.
     What is left is the client and a JS shim.
 
+    Phase 2 renders correctly and does not display.  This is the open problem.
+
+    What is established, by driving the headset's browser directly over adb rather than by inference:
+
+      * The engine's output is correct.  Substituting a readable framebuffer for the session's, behind the same
+        GL name, and reading it back gives proper stereo - sky above, ground below, the two eyes differing,
+        alpha 255 throughout.
+      * The client binds the session's own live framebuffer, with a correct camera, no GL errors, and a single
+        render pass at 79-86 fps at full native 3360x1760.
+      * The session and its setup are fine: painting a solid colour from a callback of our own, on the page's own
+        session, displays correctly.
+      * Cancelling Emscripten's main loop is harmless - a session keeps displaying after it.
+      * Nothing illegal appears in a device trace of a frame: no drawBuffers, no reads, no blits, no invalidates.
+
+    And what actually happens: a session displays a plain clear, and stops displaying anything from the first
+    frame opengl_engine->draw() runs - permanently, for the rest of that session.  Alternating between a clear
+    and the world three seconds apart shows blue once and then black for good.  Drawing into a framebuffer of our
+    own and copying the result across does not help either, so it is not about what the session's framebuffer
+    receives; the act of the engine drawing at all disables the session's display.
+
+    Neither binding the target as FRAMEBUFFER rather than DRAW_FRAMEBUFFER, nor forcing alpha to one, nor
+    turning off the layer's antialiasing, nor bypassing the offscreen path made any difference.
+
+    Next, without needing anyone in a headset: cut down draw() until the session survives it - the simplest
+    possible draw against the same context and session, then add passes back.  The context is created by SDL with
+    antialias on and a thirty-thread pool, which is the remaining thing that differs from the JavaScript that
+    does display correctly.
+
     Phase 1 is done: an Enter VR button, a session, its frame loop driving the client, and a clean exit.  The
     framebuffer handover - the risk everything else rested on - works: a JavaScript WebGLFramebuffer registered
     in Emscripten's table through Module.GL can be bound and cleared from C++.  Proved without a headset by
