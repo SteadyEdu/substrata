@@ -264,8 +264,31 @@ EM_JS(char*, getLocationSearch, (), {
 });
 
 // Define updateURL(const char* new_URL) function
+//
+// Keeps any query parameter the client does not manage.  The client rewrites the URL with the camera position
+// twice a second, and rebuilding it from scratch silently discarded everything else that was in it - which broke
+// anything read later rather than at startup.  The WebXR options were read when a session began, long after the
+// first rewrite, so ?xrscale and ?xrrate never once took effect.  A link with a flag in it also stopped carrying
+// that flag the moment the client started, which is its own small trap.
 EM_JS(void, updateURL, (const char* new_URL), {
-	history.replaceState(null, "",  UTF8ToString(new_URL)); // See https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState
+	var url = UTF8ToString(new_URL);
+	try {
+		// Capture what the page was opened with, before the first rewrite replaces it.
+		if(!window.__substrata_opened_with)
+			window.__substrata_opened_with = new URLSearchParams(window.location.search);
+
+		var target = new URL(url, window.location.href);
+		var client_owns = ['world', 'x', 'y', 'z', 'heading', 'sun_azimuth_angle', 'sun_vert_angle'];
+		window.__substrata_opened_with.forEach(function(value, key) {
+			if((client_owns.indexOf(key) === -1) && !target.searchParams.has(key))
+				target.searchParams.set(key, value);
+		});
+		url = target.pathname + target.search;
+	}
+	catch(e) {
+		// Leave the URL as the client built it: losing a flag is better than losing the position.
+	}
+	history.replaceState(null, "", url); // See https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState
 });
 
 // Publish the frame time breakdown where the page can read it.
