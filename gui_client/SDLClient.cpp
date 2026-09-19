@@ -213,6 +213,7 @@ extern "C" void emscripten_glClearColor(float r, float g, float b, float a);
 extern "C" void emscripten_glClear(unsigned int mask);
 extern "C" void emscripten_glViewport(int x, int y, int w, int h);
 extern "C" unsigned int emscripten_glGetError(void);
+extern "C" void emscripten_glGetIntegerv(unsigned int pname, int* params);
 #endif
 #if EMSCRIPTEN
 extern "C" void emscripten_glFinish(void);
@@ -263,6 +264,12 @@ EM_JS(void, publishFrameTimings, (double cpu_ms, double gl_ms, double client_fps
 // shows only the result.  So anything that goes wrong is recorded where the flat page can show it afterwards.
 EM_JS(void, publishXRError, (const char* msg), {
 	window.__substrata_xr_error = UTF8ToString(msg);
+});
+
+// Not a failure, just what the client saw - shown beside the statistics so a session can be inspected after the
+// fact rather than guessed at.
+EM_JS(void, publishXRDebug, (const char* msg), {
+	window.__substrata_xr_debug = UTF8ToString(msg);
 });
 
 EM_JS(void, publishXRStats, (double fps, int frames, int views, int fb_w, int fb_h, int active), {
@@ -1580,6 +1587,11 @@ void xrFrame(int num_views)
 	if(num_views > 0)
 		xr_last_num_views = num_views;
 
+	// Drain anything left pending before touching GL, so a stale error is not attributed to this frame.  The
+	// engine raises an INVALID_ENUM every frame in ordinary rendering as well: its texture unit indices run past
+	// the limit WebGL2 commonly provides, which is harmless while the passes that would use those units are off.
+	while(emscripten_glGetError() != 0) {}
+
 	emscripten_glBindFramebuffer(GL_FRAMEBUFFER, xr_framebuffer_name);
 
 	if(num_views <= 0)
@@ -1593,11 +1605,6 @@ void xrFrame(int num_views)
 	else
 	{
 		const int use_num_views = myMin(num_views, XR_MAX_VIEWS);
-
-		// Drain whatever is already pending before drawing.  The engine raises an INVALID_ENUM every frame in
-		// ordinary rendering too - harmless against the page's canvas - and reporting that would bury a real
-		// error rather than reveal one.
-		while(emscripten_glGetError() != 0) {}
 
 		try
 		{
@@ -1669,6 +1676,33 @@ void xrFrame(int num_views)
 				const std::string msg = "GL error " + toString(first_err) + " drawing a view (" + toString(err_count) + " this frame)";
 				publishXRError(msg.c_str());
 			}
+
+			// Whether the scene went where it was meant to.  If the engine has left some other framebuffer bound
+			// by the end of the frame, the drawing landed somewhere the compositor will never show - which looks
+			// exactly like drawing nothing.
+			if((xr_frames % 90) == 1)
+			{
+				int bound_draw_fb = 0, bound_read_fb = 0;
+				emscripten_glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &bound_draw_fb);
+				emscripten_glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &bound_read_fb);
+
+				// Where the engine believes the camera is, which is the thing a black view cannot distinguish
+				// from a correct one.  If this is somewhere sensible and the view is still black, the fault is
+				// after the camera; if it is not, the fault is in the transform built above.
+				const Vec4f cam_pos = opengl_engine->getCameraPositionWS();
+				const Vec4f cam_fwd = opengl_engine->getCurrentScene()->cam_to_world.getColumn(1);
+
+				const std::string msg = "fb " + toString(bound_draw_fb) + "/" + toString(xr_framebuffer_name) +
+					" views " + toString(use_num_views) +
+					" cam " + doubleToStringNDecimalPlaces(cam_pos[0], 1) + "," + doubleToStringNDecimalPlaces(cam_pos[1], 1) + "," + doubleToStringNDecimalPlaces(cam_pos[2], 1) +
+					" fwd " + doubleToStringNDecimalPlaces(cam_fwd[0], 2) + "," + doubleToStringNDecimalPlaces(cam_fwd[1], 2) + "," + doubleToStringNDecimalPlaces(cam_fwd[2], 2);
+				publishXRDebug(msg.c_str());
+			}
+
+			// Leave the session's framebuffer bound when the frame callback returns.  The engine moves the
+			// binding around during a frame, and not every implementation is relaxed about what is bound at the
+			// end of an XR frame.
+			emscripten_glBindFramebuffer(GL_FRAMEBUFFER, xr_framebuffer_name);
 		}
 		catch(glare::Exception& e)
 		{

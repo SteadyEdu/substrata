@@ -451,6 +451,7 @@
 			var c = window.__substrata_xr_counts;
 			var out = [];
 			if(c) out.push('xr calls     ' + c.frames + ' frames, ' + c.drawn + ' drawn, ' + c.noPose + ' no pose');
+			if(window.__substrata_xr_debug) out.push('xr where     ' + window.__substrata_xr_debug);
 			if(e) out.push('xr ERROR     ' + e);
 			return out.length ? out.join('\n') : null;
 		}
