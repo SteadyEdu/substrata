@@ -664,5 +664,29 @@
 	</script>
 
 
+	<!-- A failure inside a WebXR session, shown whether or not the frame timing overlay was asked for.
+	     Diagnostics that only appear when a debug flag happens to be in the URL are diagnostics that will be
+	     missing on the run that needed them, which is how a session error went unseen for a whole round here. -->
+	<script type="text/javascript">
+	(function() {
+		var box = null;
+		setInterval(function() {
+			var e = window.__substrata_xr_error;
+			if(!e) return;
+			if(!box) {
+				box = document.createElement('div');
+				box.style.cssText =
+					'position:fixed;left:8px;bottom:8px;right:8px;z-index:100002;pointer-events:none;' +
+					'font:13px/1.4 monospace;white-space:pre-wrap;color:#fff;' +
+					'background:rgba(140,20,20,0.92);padding:8px 12px;border-radius:6px;';
+				document.body.appendChild(box);
+			}
+			var c = window.__substrata_xr_counts;
+			box.textContent = 'WebXR: ' + e + (c ? ('\n' + c.frames + ' frames, ' + c.drawn + ' drawn, ' + c.noPose + ' no pose') : '');
+		}, 500);
+	})();
+	</script>
+
+
 	</body>
 </html>
